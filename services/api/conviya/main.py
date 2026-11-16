@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
-app = FastAPI(title="Conviya API", version="0.1.0", lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title="Trust Meet API", version="0.1.0", lifespan=lifespan, docs_url=None, redoc_url=None)
 
 
 @app.middleware("http")

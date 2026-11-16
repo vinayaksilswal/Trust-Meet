@@ -110,7 +110,7 @@ export function Connect() {
     <section className="content-panel connect-panel">
       {account.isPending ? <Notice>Loading your account…</Notice> :
        account.isError ? <Notice error>{errorMessage(account.error)}<button onClick={() => account.refetch()}>Try again</button></Notice> :
-       !profile ? <><h2>Sign in to connect</h2><p>Use a verified Conviya account to open or join a conversation.</p>
+       !profile ? <><h2>Sign in to connect</h2><p>Use a verified Trust Meet account to open or join a conversation.</p>
          <div className="action-row"><Link className="button button-primary" href="/account/login?next=connect">Sign in <ArrowRight size={16} /></Link><Link className="button button-outline" href="/account/register">Create an account</Link></div></> :
        !profile.eligible ? <><h2>Check your eligibility</h2><p>Complete the adult eligibility check for this account.</p><Link className="button button-primary" href="/account">Go to account</Link></> :
        !profile.conversations_enabled ? <Notice>Conversations are currently unavailable.</Notice> :
@@ -122,7 +122,7 @@ export function Connect() {
        active?.state === "invited" ? <>
          <h2>{active.partner ? "Conversation invitation" : "Invitation link ready"}</h2>
          {active.partner ? <Notice>{active.consented ? "Waiting for the other participant to accept…" : active.partner + " is available for a " + active.mode + " conversation."}</Notice> :
-          <p>Share this link with one eligible Conviya user. The invitation expires in ten minutes.</p>}
+          <p>Share this link with one eligible Trust Meet user. The invitation expires in ten minutes.</p>}
          {inviteUrl && !active.partner && <div className="form-stack"><Field label="Invitation link" value={inviteUrl} readOnly onFocus={event => event.target.select()} />
            <button className="button button-outline" onClick={async () => {
              try { await navigator.clipboard.writeText(inviteUrl); setCopied(true); } catch { setCopied(false); }

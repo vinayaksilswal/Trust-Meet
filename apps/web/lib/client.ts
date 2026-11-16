@@ -20,7 +20,7 @@ export async function api<T>(path: string, schema: z.ZodType<T>, payload?: unkno
   });
   if (!response.ok) {
     const result = await response.json().catch(() => null);
-    throw new ApiError(response.status, typeof result?.detail === "string" ? result.detail : "Conviya is temporarily unavailable.");
+    throw new ApiError(response.status, typeof result?.detail === "string" ? result.detail : "Trust Meet is temporarily unavailable.");
   }
   return schema.parse(response.status === 204 ? null : await response.json());
 }

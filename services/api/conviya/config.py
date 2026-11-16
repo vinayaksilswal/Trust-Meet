@@ -1,3 +1,4 @@
+from ipaddress import IPv4Address, IPv4Network
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -8,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    environment: Literal["development", "test", "production"] = "development"
+    environment: Literal["development", "test", "lan", "production"] = "development"
     web_origin: str = "http://localhost:3000"
     database_url: str = "postgresql+psycopg://conviya:conviya@127.0.0.1:5432/conviya"
     redis_url: str = "redis://127.0.0.1:6379/0"
@@ -39,6 +40,16 @@ class Settings(BaseSettings):
                 raise ValueError("Production requires an HTTPS web origin and authenticated TLS mail.")
             if self.enable_dev_age_assurance or self.enable_conversations:
                 raise ValueError("Production conversations require approved age assurance and media enforcement.")
+        elif self.environment == "lan":
+            private_networks = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+            try:
+                address = IPv4Address(origin.hostname)
+            except ValueError as error:
+                raise ValueError("LAN testing requires a private IPv4 address.") from error
+            if origin.scheme != "https" or not any(address in IPv4Network(network) for network in private_networks):
+                raise ValueError("LAN testing requires HTTPS on a private IPv4 address.")
+            if self.livekit_ws_url != f"wss://{origin.netloc}" or len(self.livekit_api_secret) < 32:
+                raise ValueError("LAN testing requires same-origin encrypted signaling and a dedicated media key.")
         elif origin.scheme != "http" or origin.hostname not in {"localhost", "127.0.0.1", "::1"}:
             raise ValueError("Development and test origins must use loopback HTTP.")
         return self

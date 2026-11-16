@@ -59,7 +59,7 @@ function AccountForm({ action }: { action: Exclude<AccountAction, "settings"> })
   }
   return <div className="content-panel form-panel">
     <h1>{titles[action]}</h1>
-    {action === "register" && <p>Conviya is for adults aged 18 and older.</p>}
+    {action === "register" && <p>Trust Meet is for adults aged 18 and older.</p>}
     {action === "verify" && !completed && <p>Confirm that this email address belongs to you.</p>}
     {completed ? <Notice>{mutation.data.message}</Notice> : <form className="form-stack" onSubmit={submit}>
       {action === "register" && <Field label="Display name" name="display_name" autoComplete="nickname" minLength={2} maxLength={60} required />}

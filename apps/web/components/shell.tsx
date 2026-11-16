@@ -18,7 +18,7 @@ export const modules = [
 export function Brand() {
   return <Link className="brand" href="/">
     <span className="brand-icon"><MessageCircle size={19} strokeWidth={2.5} /><span /></span>
-    <span>conviya<span className="brand-dot">.</span></span>
+    <span>Trust Meet</span>
   </Link>;
 }
 
@@ -52,7 +52,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <header className="topbar">
         <div className="topbar-left">
           <button className="icon-button mobile-only" aria-label="Open menu" aria-expanded={open} aria-controls="navigation" onClick={() => setOpen(!open)}><Menu size={22} /></button>
-          <span className="desktop-only">{path === "/" ? "Discovery" : (links.find(link => link.href === path)?.name ?? "Conviya")}</span>
+          <span className="desktop-only">{path === "/" ? "Discovery" : (links.find(link => link.href === path)?.name ?? "Trust Meet")}</span>
           <div className="mobile-only"><Brand /></div>
         </div>
         <div className="topbar-right">
@@ -64,7 +64,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
       </header>
       <main id="main" className="main-content">{children}</main>
-      <footer className="workspace-footer"><span>Conviya</span><span>Real People. Real Conversations.</span></footer>
+      <footer className="workspace-footer"><span>Trust Meet</span><span>Real People. Real Conversations.</span></footer>
     </div>
   </div>;
 }

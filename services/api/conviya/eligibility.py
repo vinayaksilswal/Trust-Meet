@@ -32,7 +32,7 @@ class DevelopmentAgeAssurance:
 
 
 def assurance_provider() -> AgeAssurance | None:
-    if settings.environment in {"development", "test"} and settings.enable_dev_age_assurance:
+    if settings.environment in {"development", "test", "lan"} and settings.enable_dev_age_assurance:
         return DevelopmentAgeAssurance()
     return None
 

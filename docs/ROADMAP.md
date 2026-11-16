@@ -1,4 +1,4 @@
-# Conviya delivery roadmap
+# Trust Meet delivery roadmap
 
 1. Foundation — Next.js web shell, FastAPI domain boundaries, schema and migrations, PostgreSQL sessions, Redis throttling, email verification and development age assurance.
 2. Real conversations — authenticated expiring invitations, explicit consent, room-scoped LiveKit grants, text, microphone and video, two-browser verification.

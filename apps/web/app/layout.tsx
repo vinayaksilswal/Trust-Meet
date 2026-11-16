@@ -6,7 +6,7 @@ import { Providers } from "./providers";
 import { Shell } from "@/components/shell";
 
 export const metadata: Metadata = {
-  title: { default: "Conviya · Real People. Real Conversations.", template: "%s · Conviya" },
+  title: { default: "Trust Meet · Real People. Real Conversations.", template: "%s · Trust Meet" },
   description: "Find meaningful conversations with adults who share your curiosity. Connect by video, voice, or text.",
   robots: { index: false, follow: false },
 };

@@ -10,7 +10,7 @@ export function Discovery() {
   const { data: account } = useAccount();
   return <>
     <div className="page-intro">
-      <h1>{account ? `Welcome, ${account.display_name.split(" ")[0]}` : "Discover Conviya"}</h1>
+      <h1>{account ? `Welcome, ${account.display_name.split(" ")[0]}` : "Discover Trust Meet"}</h1>
       <p>Find your next conversation, community, or connection.</p>
     </div>
     <section className="hero" aria-labelledby="hero-title">
@@ -28,7 +28,7 @@ export function Discovery() {
       <div className="hero-media" aria-hidden="true"><Video size={17} /><Mic size={17} /><MessageCircle size={16} /></div>
     </section>
     <section className="explore" aria-labelledby="explore-title">
-      <div className="section-heading"><h2 id="explore-title">Explore Conviya</h2><p>Choose a space that fits the conversation you want to have.</p></div>
+      <div className="section-heading"><h2 id="explore-title">Explore Trust Meet</h2><p>Choose a space that fits the conversation you want to have.</p></div>
       <div className="module-grid">
         {modules.map(({ slug, title, description, icon: Icon, theme, action }) => <Link key={slug} href={"/" + slug} className={"module-card theme-" + theme}>
           <div className="card-top"><span className="module-icon"><Icon size={22} strokeWidth={1.85} /></span><ArrowUpRight className="card-arrow" size={18} /></div>

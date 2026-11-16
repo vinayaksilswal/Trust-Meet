@@ -26,7 +26,8 @@ hasher = PasswordHasher()
 dummy_hash = hasher.hash(new_token())
 hash_slots = asyncio.Semaphore(2)
 session_lifetime = timedelta(hours=12)
-cookie_name = "__Host-conviya" if settings.environment == "production" else "conviya"
+secure_cookie = settings.environment in {"lan", "production"}
+cookie_name = "__Host-conviya" if secure_cookie else "conviya"
 
 
 class Credentials(BaseModel):
@@ -55,9 +56,9 @@ def send_mail(email: str, token: str, purpose: str):
     message = EmailMessage()
     message["From"] = settings.smtp_sender
     message["To"] = email
-    message["Subject"] = "Verify your Conviya email" if action == "verify" else "Reset your Conviya password"
+    message["Subject"] = "Verify your Trust Meet email" if action == "verify" else "Reset your Trust Meet password"
     message.set_content(
-        f"Open this link to {action} your Conviya account.\n\n"
+        f"Open this link to {action} your Trust Meet account.\n\n"
         f"{settings.web_origin}/account/{action}#{token}\n\n"
         "If you did not request this, you can ignore this message."
     )
@@ -198,7 +199,7 @@ async def login(payload: Credentials, request: Request, response: Response, db: 
     await db.commit()
     response.set_cookie(
         cookie_name, token, max_age=int(session_lifetime.total_seconds()),
-        secure=settings.environment == "production", httponly=True, samesite="strict", path="/",
+        secure=secure_cookie, httponly=True, samesite="strict", path="/",
     )
     return {"message": "Signed in."}
 
@@ -209,4 +210,4 @@ async def logout(request: Request, response: Response, db: Db):
     if len(prior) == 43:
         await db.execute(delete(LoginSession).where(LoginSession.token_hash == digest(prior)))
         await db.commit()
-    response.delete_cookie(cookie_name, secure=settings.environment == "production", httponly=True, samesite="strict")
+    response.delete_cookie(cookie_name, secure=secure_cookie, httponly=True, samesite="strict")

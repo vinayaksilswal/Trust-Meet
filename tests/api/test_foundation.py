@@ -14,6 +14,7 @@ from conviya.eligibility import DevelopmentAgeAssurance
 origin = os.getenv("CONVIYA_TEST_WEB_URL", "http://localhost:3000")
 mailbox = os.getenv("CONVIYA_TEST_MAIL_URL", "http://127.0.0.1:8025")
 password = "development integration password 24!"
+cookie_name = "__Host-conviya" if origin.startswith("https://") else "conviya"
 
 
 @pytest.fixture
@@ -43,6 +44,8 @@ def verified_account(client):
     response = client.post("auth/login", json=credentials)
     assert response.status_code == 200
     assert "HttpOnly" in response.headers["set-cookie"] and "SameSite=strict" in response.headers["set-cookie"]
+    if origin.startswith("https://"):
+        assert "Secure" in response.headers["set-cookie"]
     return credentials
 
 
@@ -62,6 +65,19 @@ def test_age_threshold():
     assert not provider.is_adult(date(2008, 2, 29), date(2026, 2, 28))
 
 
+def test_lan_requires_private_https_and_same_origin_signaling():
+    lan = dict(environment="lan", web_origin="https://192.168.1.5:3443",
+               livekit_ws_url="wss://192.168.1.5:3443", livekit_api_secret="x" * 32)
+    assert Settings(**lan).environment == "lan"
+    for changes in (
+        {"web_origin": "https://8.8.8.8:3443"},
+        {"web_origin": "http://192.168.1.5:3443"},
+        {"livekit_ws_url": "ws://192.168.1.5:3443"},
+        {"livekit_api_secret": "secret"},
+    ):
+        with pytest.raises(ValidationError, match="LAN testing requires"):
+            Settings(**(lan | changes))
+
 def test_readiness_and_csrf(client):
     assert client.get("ready").json() == {"status": "ready"}
     response = client.post("auth/logout", headers={"Origin": "https://wrong.example"}, json={})
@@ -78,7 +94,7 @@ def test_underage_cannot_retry_or_invite(client):
 
 def test_password_reset_and_logout_revoke_sessions(client):
     credentials = verified_account(client)
-    token = client.cookies.get("conviya")
+    token = client.cookies.get(cookie_name)
     assert client.post("auth/recover", json={"email": credentials["email"]}).status_code == 202
     proof = mail_token(credentials["email"], "reset")
     new_password = "New integration password 24!"
@@ -86,7 +102,7 @@ def test_password_reset_and_logout_revoke_sessions(client):
     assert client.get("me").status_code == 401
     assert client.post("auth/login", json=credentials).status_code == 401
     assert client.post("auth/login", json={**credentials, "password": new_password}).status_code == 200
-    new_session = client.cookies.get("conviya")
+    new_session = client.cookies.get(cookie_name)
     assert new_session != token
     assert client.post("auth/logout", json={}).status_code == 204
-    assert client.get("me", headers={"Cookie": "conviya=" + new_session}).status_code == 401
+    assert client.get("me", headers={"Cookie": cookie_name + "=" + new_session}).status_code == 401

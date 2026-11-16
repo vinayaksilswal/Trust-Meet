@@ -49,7 +49,8 @@ async function twoAccounts(browser: Browser, request: APIRequestContext) {
 test("discovery is accessible and fits a mobile viewport", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Discover Conviya" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Discover Trust Meet" })).toBeVisible();
+  expect(await page.evaluate(() => window.isSecureContext && !!navigator.mediaDevices?.getUserMedia)).toBe(true);
   await page.getByRole("button", { name: "Open menu" }).click();
   await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
   await page.getByRole("button", { name: "Close menu" }).click();
@@ -137,7 +138,7 @@ test("private room hosts can approve, mute, and remove guests in a group LiveKit
     await provision(guest, request, "Isha");
     await alice.goto("/private-rooms");
     await alice.getByLabel("Room title").fill("Founder discussion");
-    await alice.getByRole("combobox", { name: "Mode", exact: true }).selectOption("audio");
+    await alice.getByRole("combobox", { name: "Mode", exact: true }).selectOption("video");
     await alice.getByLabel("Room password (optional)").fill("local-group-password");
     await alice.getByRole("button", { name: "Create private room" }).click();
     await alice.getByRole("button", { name: "Create room invitation" }).click();
@@ -163,6 +164,10 @@ test("private room hosts can approve, mute, and remove guests in a group LiveKit
     }
     await amit.getByRole("button", { name: "Enable microphone" }).click();
     await expect(guest.getByTestId("remote-audio").locator("audio")).toHaveCount(1, { timeout: 15_000 });
+    await alice.getByRole("button", { name: "Enable camera" }).click();
+    const video = guest.getByTestId("remote-video").locator("video");
+    await expect(video).toHaveCount(1, { timeout: 15_000 });
+    await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBeGreaterThan(0);
     await alice.getByRole("button", { name: "Mute Amit" }).click();
     await expect(amit.getByRole("button", { name: "Enable microphone" })).toBeEnabled();
     await alice.getByRole("button", { name: "Remove Amit" }).click();

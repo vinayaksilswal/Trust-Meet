@@ -16,3 +16,7 @@ API tests cover CSRF, verification and token reuse, password recovery, session r
 Browser tests cover responsive navigation and automated discovery accessibility checks, authenticated two-user text exchange, received voice and video, local preview, refresh recovery, mutual match consent, Next, and a three-participant room with password entry, approval, chat, mute, removal and close. Chromium used synthetic microphone and camera input. LiveKit transported actual tracks and data.
 
 A Docker engine was unavailable on this machine. Container startup, GitHub Actions execution, real hardware, TURN fallback, LiveKit Cloud token revocation, production security and load remain unverified.
+
+## Trust Meet LAN test
+
+The Windows LAN launch served HTTPS and same-origin LiveKit signaling at the host's private Wi-Fi address. Nine API tests and six Chromium tests passed through the LAN address, including secure cookies, two-user text, audio and video, refresh recovery and a three-user private video room. The automated clients ran on the host with synthetic media. A second physical device still needs a manual Wi-Fi and camera test.

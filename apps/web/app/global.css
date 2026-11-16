@@ -23,8 +23,7 @@ button:disabled { opacity: .55; }
 .shell { min-height: 100vh; display: grid; grid-template-columns: 240px minmax(0, 1fr); }
 .sidebar { position: sticky; top: 0; height: 100dvh; display: flex; flex-direction: column; background: #fff; border-right: 1px solid var(--border); padding: 28px 18px 19px; }
 .sidebar-top { display: flex; justify-content: space-between; align-items: center; padding: 0 9px; margin-bottom: 54px; }
-.brand { display: inline-flex; align-items: center; gap: 9px; color: #132f2c; font-size: 28px; font-weight: 850; line-height: 1; }
-.brand-dot { color: #2a8a68; }
+.brand { display: inline-flex; align-items: center; gap: 9px; color: #132f2c; font-size: 25px; font-weight: 850; line-height: 1; }
 .brand-icon { display: grid; place-items: center; width: 34px; height: 34px; background: #21775c; border-radius: 10px; color: #fff; position: relative; }
 .brand-icon span { width: 4px; height: 4px; border-radius: 50%; background: #9ce9bb; position: absolute; top: 15px; left: 15px; }
 .nav-label { display: block; font-weight: 750; font-size: 10px; letter-spacing: .14em; color: #5c6f6b; margin: 0 10px 11px; }
