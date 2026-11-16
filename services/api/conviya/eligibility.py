@@ -32,7 +32,13 @@ class DevelopmentAgeAssurance:
         return adult_on(birth_date, today)
 
 
+class HostedTestAgeAssurance(DevelopmentAgeAssurance):
+    name = "hosted_test_self_report"
+
+
 def assurance_provider() -> AgeAssurance | None:
+    if settings.enable_hosted_test_age_check:
+        return HostedTestAgeAssurance()
     if settings.environment in {"development", "test", "lan"} and settings.enable_dev_age_assurance:
         return DevelopmentAgeAssurance()
     return None
@@ -40,11 +46,15 @@ def assurance_provider() -> AgeAssurance | None:
 
 async def eligible(db: Db, user: User):
     row = await db.get(Eligibility, user.id)
+    return has_adult_eligibility(user, row)
+
+
+def has_adult_eligibility(user: User, row: Eligibility | None) -> bool:
     if settings.public_conversations:
         return bool(user.status == "active" and can_sign_in(user) and row and row.is_adult and row.provider == PROVIDER)
     provider = assurance_provider()
     return bool(can_sign_in(user) and user.status == "active" and provider and
-                row and row.is_adult and row.provider == provider.name)
+                row and row.is_adult and row.provider in {provider.name, PROVIDER})
 
 
 async def require_eligible(user: CurrentUser, db: Db):
@@ -55,9 +65,12 @@ async def require_eligible(user: CurrentUser, db: Db):
 
 @router.get("/me")
 async def me(user: CurrentUser, db: Db):
+    row = await db.get(Eligibility, user.id)
+    provider = assurance_provider()
     return {
         "id": user.id, "display_name": user.display_name, "email": user.email,
-        "eligible": await eligible(db, user), "age_check_available": assurance_provider() is not None,
+        "eligible": has_adult_eligibility(user, row), "age_check_available": provider is not None,
+        "age_check_underage": bool(provider and row and row.provider in {provider.name, PROVIDER} and not row.is_adult),
         "online_age_check_available": settings.public_conversations,
         "conversations_enabled": settings.enable_conversations,
         "matchmaking_enabled": settings.enable_matchmaking,
@@ -76,9 +89,12 @@ async def check_age(payload: BirthDate, user: CurrentUser, db: Db):
     await throttle("eligibility", str(user.id), 5, 3600)
     await db.get(User, user.id, with_for_update=True)
     prior = await db.get(Eligibility, user.id)
-    if prior:
+    if prior and prior.provider in {provider.name, PROVIDER}:
         raise HTTPException(409, "This account already completed the age check.")
     is_adult = provider.is_adult(payload.birth_date, today)
-    await db.execute(insert(Eligibility).values(user_id=user.id, is_adult=is_adult, provider=provider.name))
+    result = {"is_adult": is_adult, "provider": provider.name, "checked_at": now()}
+    await db.execute(insert(Eligibility).values(user_id=user.id, **result).on_conflict_do_update(
+        index_elements=[Eligibility.user_id], set_=result,
+    ))
     await db.commit()
     return {"eligible": is_adult}

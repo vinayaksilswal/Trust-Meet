@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     resend_api_key: str = ""
     enable_dev_age_assurance: bool = False
+    enable_hosted_test_age_check: bool = False
     enable_conversations: bool = False
     enable_matchmaking: bool = False
     enable_private_rooms: bool = False
@@ -54,6 +55,8 @@ class Settings(BaseSettings):
             raise ValueError("Skipping email verification is available only in LAN testing.")
         if self.production_skip_email_verification and self.environment != "production":
             raise ValueError("The production email verification switch is available only in production.")
+        if self.enable_hosted_test_age_check and (self.environment != "production" or self.public_conversations):
+            raise ValueError("The hosted test age check is available only in production with public conversations off.")
         if self.public_conversations and self.environment != "production":
             raise ValueError("Public conversations require production settings.")
         origin = urlsplit(self.web_origin)

@@ -5,6 +5,7 @@ export type Mode = z.infer<typeof mode>;
 export const session = z.object({
   id: z.uuid(), display_name: z.string(), email: z.email(),
   eligible: z.boolean(), age_check_available: z.boolean(),
+  age_check_underage: z.boolean().default(false),
   online_age_check_available: z.boolean().default(false),
   conversations_enabled: z.boolean(), matchmaking_enabled: z.boolean(), private_rooms_enabled: z.boolean(),
 });

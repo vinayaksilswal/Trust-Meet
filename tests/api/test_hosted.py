@@ -41,6 +41,7 @@ def test_hosted_configuration_allows_only_guarded_media():
         {"redis_url": "rediss://redis.example.com:6379?ssl_check_hostname=false"},
         {"database_url": "postgresql+psycopg://user:pass@db.example.com/meet?sslmode=require"},
         {"enable_dev_age_assurance": True},
+        {"enable_hosted_test_age_check": True},
         {"lan_skip_email_verification": True},
     ):
         with pytest.raises(ValidationError):
@@ -100,6 +101,28 @@ def test_temporary_production_signup_and_login_skip_email_but_require_adult_proo
     asyncio.run(exercise())
     send.assert_not_awaited()
     assert user.email_verified_at is None
+
+
+def test_hosted_age_check_is_separate_from_public_verification(monkeypatch):
+    settings = hosted_settings(public_conversations=False, enable_conversations=False, enable_matchmaking=False,
+                               enable_private_rooms=False, enable_hosted_test_age_check=True)
+    monkeypatch.setattr(eligibility, "settings", settings)
+    monkeypatch.setattr(eligibility, "throttle", AsyncMock())
+    user = SimpleNamespace(id=uuid4(), status="active", email_verified_at=object())
+    db = MagicMock(get=AsyncMock(return_value=None), execute=AsyncMock(), commit=AsyncMock())
+
+    async def exercise():
+        provider = eligibility.assurance_provider()
+        assert provider.name == "hosted_test_self_report"
+        result = await eligibility.check_age(eligibility.BirthDate(birth_date=date(2000, 1, 1)), user, db)
+        assert result == {"eligible": True}
+        db.get.return_value = SimpleNamespace(is_adult=True, provider=provider.name)
+        assert await eligibility.eligible(db, user)
+        monkeypatch.setattr(eligibility, "settings", hosted_settings())
+        assert eligibility.assurance_provider() is None
+        assert not await eligibility.eligible(db, user)
+
+    asyncio.run(exercise())
 
 
 def test_resend_email_uses_https_with_legacy_smtp_key(monkeypatch):

@@ -109,20 +109,20 @@ function Settings() {
     <h1>Your account</h1>
     <p>{account.data.display_name} · {account.data.email}</p>
     <h2>Age eligibility</h2>
-    {account.data.eligible ? <Notice>Adult eligibility confirmed.</Notice> :
-      age.data?.eligible === false ? <Notice error>This account is ineligible for conversations.</Notice> :
+    {account.data.eligible ? <Notice>{account.data.age_check_available ? "18+ age check passed for testing." : "Adult eligibility confirmed."}</Notice> :
+      (account.data.age_check_underage || age.data?.eligible === false) ? <Notice error>This account does not meet the 18+ age requirement.</Notice> :
       account.data.online_age_check_available ? <OnlineAgeCheck /> :
       account.data.age_check_available ? <form className="form-stack" onSubmit={event => {
         event.preventDefault();
         age.mutate(String(new FormData(event.currentTarget).get("birth_date")));
       }}>
-        <p>Enter a test date of birth to check whether this account can use conversations. Only the result is stored.</p>
+        <p>Enter your date of birth for the 18+ test. Trust Meet stores only the eligibility result.</p>
         <Field label="Date of birth" name="birth_date" type="date" required />
         <button className="button button-primary" disabled={age.isPending}>Check eligibility</button>
       </form> : <Notice>Age assurance is currently unavailable.</Notice>}
     {age.isError && <Notice error>{errorMessage(age.error)}</Notice>}
     {logout.isError && <Notice error>{errorMessage(logout.error)}</Notice>}
-    <div className="form-links">{account.data.eligible && <Link href="/connect">Open Random Connect</Link>}
+    <div className="form-links">{account.data.eligible && account.data.conversations_enabled && <Link href="/connect">Open Random Connect</Link>}
     <button className="button button-outline" disabled={logout.isPending} onClick={() => logout.mutate()}>Sign out</button></div>
   </article>;
 }
