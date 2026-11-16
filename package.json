@@ -1,0 +1,24 @@
+{
+  "name": "conviya",
+  "private": true,
+  "workspaces": [
+    "apps/web",
+    "packages/ui",
+    "packages/contracts",
+    "packages/config"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "npm run dev -w @conviya/web",
+    "build": "npm run build -w @conviya/web",
+    "start": "npm run start -w @conviya/web",
+    "typecheck": "npm run typecheck -w @conviya/web",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.65.1"
+  }
+}

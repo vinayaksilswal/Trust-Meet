@@ -1,0 +1,13 @@
+.env
+.env.local
+.venv/
+.local/
+node_modules/
+.next/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.tsbuildinfo
+test-results/
+playwright-report/
+next-env.d.ts

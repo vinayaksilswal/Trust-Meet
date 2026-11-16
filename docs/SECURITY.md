@@ -1,0 +1,5 @@
+# Security engineering
+
+The web proxy is the same origin as the API for browser calls. FastAPI verifies the exact Origin on state-changing requests. Account credentials are Argon2id hashes. Session and email tokens are opaque, hashed at rest and time limited. Reset revokes all web sessions. Redis rate limits fail closed. Conversation IDs and media actions are participant scoped. Browser cookies use HttpOnly and SameSite Strict, with Secure and a host cookie prefix in production configuration.
+
+Local age assurance is self-reported and restricted to explicit development and test configuration. Production rejects conversation enablement pending approved age assurance and enforceable media revocation. Local LiveKit deletion closes connected rooms. A previously issued or refreshed token can be replayed against the self-hosted server within its validity window. Local ports and keys are intended only for loopback testing. Cloud revocation, moderation enforcement, MFA, dependency and container security verification, and ASVS Level 2 assessment remain open.

@@ -1,0 +1,85 @@
+name: conviya
+x-api: &api
+  build:
+    context: .
+    dockerfile: services/api/Dockerfile
+  environment:
+    ENVIRONMENT: development
+    WEB_ORIGIN: http://localhost:3000
+    DATABASE_URL: postgresql+psycopg://conviya:conviya@postgres:5432/conviya
+    REDIS_URL: redis://redis:6379/0
+    SMTP_HOST: mail
+    SMTP_PORT: 1025
+    ENABLE_DEV_AGE_ASSURANCE: "true"
+    ENABLE_CONVERSATIONS: "true"
+    ENABLE_MATCHMAKING: "true"
+    ENABLE_PRIVATE_ROOMS: "true"
+    LIVEKIT_API_URL: http://livekit:7880
+    LIVEKIT_WS_URL: ws://localhost:7880
+    LIVEKIT_API_KEY: devkey
+    LIVEKIT_API_SECRET: secret
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_DB: conviya
+      POSTGRES_USER: conviya
+      POSTGRES_PASSWORD: conviya
+    volumes:
+      - postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U conviya -d conviya"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:8.10.3-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  mail:
+    image: axllent/mailpit:v1.33.1
+    ports: ["127.0.0.1:8025:8025"]
+  livekit:
+    image: livekit/livekit-server:v1.13.11
+    command: ["--dev", "--bind", "0.0.0.0", "--node-ip", "127.0.0.1"]
+    ports:
+      - "127.0.0.1:7880:7880"
+      - "127.0.0.1:7881:7881"
+      - "127.0.0.1:7882:7882/udp"
+  migrate:
+    <<: *api
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+  api:
+    <<: *api
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      mail:
+        condition: service_started
+      livekit:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        CONVIYA_API_URL: http://api:8000
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      api:
+        condition: service_healthy
+volumes:
+  postgres:
