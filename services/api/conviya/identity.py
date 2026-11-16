@@ -1,9 +1,13 @@
 import asyncio
 from datetime import timedelta
 from email.message import EmailMessage
+import json
+import logging
 import smtplib
 import ssl
 from typing import Annotated
+from urllib.error import HTTPError
+from urllib.request import Request as MailRequest, urlopen
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
@@ -19,6 +23,7 @@ from .runtime import client_key, database, digest, new_token, now, throttle
 
 
 router = APIRouter(prefix="/auth", tags=["identity"])
+logger = logging.getLogger(__name__)
 Db = Annotated[AsyncSession, Depends(database)]
 Password = Annotated[str, StringConstraints(min_length=12, max_length=128)]
 Token = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{43}$")]
@@ -53,15 +58,28 @@ class PasswordReset(TokenInput):
 
 def send_mail(email: str, token: str, purpose: str):
     action = "verify" if purpose == "verify" else "reset"
-    message = EmailMessage()
-    message["From"] = settings.smtp_sender
-    message["To"] = email
-    message["Subject"] = "Verify your Trust Meet email" if action == "verify" else "Reset your Trust Meet password"
-    message.set_content(
+    subject = "Verify your Trust Meet email" if action == "verify" else "Reset your Trust Meet password"
+    body = (
         f"Open this link to {action} your Trust Meet account.\n\n"
         f"{settings.web_origin}/account/{action}#{token}\n\n"
         "If you did not request this, you can ignore this message."
     )
+    resend_key = settings.resend_key
+    if resend_key:
+        request = MailRequest(
+            "https://api.resend.com/emails",
+            data=json.dumps({"from": settings.smtp_sender, "to": [email], "subject": subject, "text": body}).encode(),
+            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=5):
+            return
+
+    message = EmailMessage()
+    message["From"] = settings.smtp_sender
+    message["To"] = email
+    message["Subject"] = subject
+    message.set_content(body)
     with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=5) as smtp:
         if settings.smtp_starttls:
             smtp.starttls(context=ssl.create_default_context())
@@ -78,6 +96,8 @@ async def issue_account_link(db: AsyncSession, user: User, purpose: str):
     try:
         await asyncio.to_thread(send_mail, user.email, token, purpose)
     except (OSError, smtplib.SMTPException) as err:
+        provider_status = err.code if isinstance(err, HTTPError) else getattr(err, "smtp_code", None)
+        logger.warning("Account email delivery failed (%s, provider status %s)", type(err).__name__, provider_status)
         raise HTTPException(503, "Email delivery is temporarily unavailable. Please try again.") from err
 
 
@@ -130,7 +150,7 @@ async def register(payload: Registration, request: Request, db: Db):
         return {"message": "Email confirmation is paused for LAN testing. You can sign in now."}
     if user:
         await issue_account_link(db, user, "verify")
-    return {"message": "Check your inbox for an email verification link."}
+    return {"message": "Check your inbox for a verification link. Use Resend verification if it hasn’t arrived."}
 
 
 @router.post("/resend", status_code=202)

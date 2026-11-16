@@ -1,6 +1,9 @@
 import asyncio
 from datetime import date
-from unittest.mock import AsyncMock
+import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+from urllib.error import HTTPError
 from uuid import uuid4
 
 import pytest
@@ -8,7 +11,7 @@ import httpx
 from pydantic import ValidationError
 
 from conviya.config import Settings
-from conviya import age_verification, conversations, main
+from conviya import age_verification, conversations, identity, main
 from fastapi import HTTPException
 
 
@@ -61,6 +64,42 @@ def test_hosted_gateway_blocks_direct_api_traffic(monkeypatch):
             assert response.status_code == 403
 
     asyncio.run(exercise())
+
+
+def test_resend_email_uses_https_with_legacy_smtp_key(monkeypatch):
+    config = hosted_settings(smtp_host="smtp.resend.com", smtp_sender="Trust Meet <hello@example.com>")
+    monkeypatch.setattr(identity, "settings", config)
+    send = MagicMock()
+    monkeypatch.setattr(identity, "urlopen", send)
+
+    identity.send_mail("recipient@example.net", "sample-token", "verify")
+
+    request = send.call_args.args[0]
+    assert request.full_url == "https://api.resend.com/emails"
+    assert request.get_method() == "POST"
+    assert request.get_header("Authorization") == "Bearer test"
+    message = json.loads(request.data)
+    assert message["from"] == config.smtp_sender
+    assert message["to"] == ["recipient@example.net"]
+    assert f"{config.web_origin}/account/verify#sample-token" in message["text"]
+
+
+def test_resend_rejection_returns_retryable_error_without_logging_email_details(monkeypatch, caplog):
+    config = hosted_settings(resend_api_key="test-api-key", smtp_username="", smtp_password="", smtp_starttls=False)
+    monkeypatch.setattr(identity, "settings", config)
+    rejection = HTTPError("https://api.resend.com/emails", 403, "private provider details", None, None)
+    monkeypatch.setattr(identity, "urlopen", MagicMock(side_effect=rejection))
+    db = MagicMock(commit=AsyncMock())
+    user = SimpleNamespace(id=uuid4(), email="recipient@example.net")
+
+    with pytest.raises(HTTPException, match="Email delivery is temporarily unavailable") as exc:
+        asyncio.run(identity.issue_account_link(db, user, "verify"))
+
+    assert exc.value.status_code == 503
+    assert "provider status 403" in caplog.text
+    assert "private provider details" not in caplog.text
+    assert user.email not in caplog.text
+    assert config.resend_api_key not in caplog.text
 
 
 def test_age_decision_requires_account_binding_and_an_approved_document_birth_date():

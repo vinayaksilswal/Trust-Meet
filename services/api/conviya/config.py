@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     smtp_starttls: bool = False
     smtp_username: str = ""
     smtp_password: str = ""
+    resend_api_key: str = ""
     enable_dev_age_assurance: bool = False
     enable_conversations: bool = False
     enable_matchmaking: bool = False
@@ -34,6 +35,14 @@ class Settings(BaseSettings):
     livekit_api_key: str = "devkey"
     livekit_api_secret: str = "secret"
 
+    @property
+    def resend_key(self) -> str:
+        if self.resend_api_key:
+            return self.resend_api_key
+        if self.smtp_host.casefold() == "smtp.resend.com" and self.smtp_username == "resend":
+            return self.smtp_password
+        return ""
+
     @model_validator(mode="after")
     def enforce_launch_gates(self):
         if self.lan_skip_email_verification and self.environment != "lan":
@@ -46,7 +55,8 @@ class Settings(BaseSettings):
         if (self.enable_matchmaking or self.enable_private_rooms) and not self.enable_conversations:
             raise ValueError("Matchmaking and private rooms require conversations.")
         if self.environment == "production":
-            if origin.scheme != "https" or not self.smtp_starttls or not self.smtp_username or not self.smtp_password:
+            authenticated_smtp = self.smtp_starttls and self.smtp_username and self.smtp_password
+            if origin.scheme != "https" or not (self.resend_key or authenticated_smtp):
                 raise ValueError("Production requires an HTTPS web origin and authenticated TLS mail.")
             if self.enable_dev_age_assurance or (self.enable_conversations and not self.public_conversations):
                 raise ValueError("Production conversations require approved age assurance and media enforcement.")
