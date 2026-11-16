@@ -1,4 +1,5 @@
 import asyncio
+from datetime import date
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -7,16 +8,18 @@ import httpx
 from pydantic import ValidationError
 
 from conviya.config import Settings
-from conviya import conversations, identity, main
+from conviya import age_verification, conversations, main
+from fastapi import HTTPException
 
 
 def hosted_settings(**changes):
     values = dict(
-        environment="production", hosted_invite_beta=True, web_origin="https://meet.example.com",
+        environment="production", public_conversations=True, web_origin="https://meet.example.com",
         web_proxy_secret="p" * 40, smtp_starttls=True, smtp_username="resend", smtp_password="test",
         livekit_api_url="https://sample.livekit.cloud", livekit_ws_url="wss://sample.livekit.cloud",
         livekit_api_key="test-project", livekit_api_secret="m" * 40,
         database_url="postgresql+psycopg://user:pass@db.example.com/meet?sslmode=verify-full",
+        veriff_api_key="test-veriff-key", veriff_shared_secret="test-veriff-secret",
         redis_url="rediss://redis.example.com:6379", enable_conversations=True,
         enable_matchmaking=True, enable_private_rooms=True,
     )
@@ -26,7 +29,9 @@ def hosted_settings(**changes):
 def test_hosted_configuration_allows_only_guarded_media():
     assert hosted_settings().enable_matchmaking
     for change in (
-        {"hosted_invite_beta": False},
+        {"public_conversations": False},
+        {"veriff_api_key": ""},
+        {"veriff_api_url": "https://veriff.example.net"},
         {"livekit_ws_url": "ws://localhost:7880"},
         {"livekit_api_key": "devkey"},
         {"web_proxy_secret": ""},
@@ -58,17 +63,25 @@ def test_hosted_gateway_blocks_direct_api_traffic(monkeypatch):
     asyncio.run(exercise())
 
 
-def test_hosted_roster_excludes_missing_or_suspended_admissions(monkeypatch):
-    from sqlalchemy.dialects import postgresql
-
-    monkeypatch.setattr(identity, "settings", hosted_settings())
-    db = AsyncMock()
-    db.scalar.return_value = None
-    assert not asyncio.run(identity.admission_allows(db, "adult@example.com"))
-    query = str(db.scalar.call_args.args[0].compile(dialect=postgresql.dialect()))
-    assert "suspended_at IS NULL" in query
-    db.scalar.return_value = "adult@example.com"
-    assert asyncio.run(identity.admission_allows(db, "adult@example.com"))
+def test_age_decision_requires_account_binding_and_an_approved_document_birth_date():
+    session, user = uuid4(), uuid4()
+    today = date(2026, 11, 16)
+    verified = {
+        "id": str(session), "vendorData": str(user), "status": "approved", "code": 9001,
+        "person": {"dateOfBirth": "2008-11-16"},
+    }
+    decision = {"verification": verified}
+    assert age_verification.parse_decision(decision, session, user, today) == "verified"
+    assert age_verification.parse_decision({"verification": None}, session, user, today) == "pending"
+    with pytest.raises(HTTPException):
+        age_verification.parse_decision(decision, session, uuid4(), today)
+    verified["person"]["dateOfBirth"] = "2008-11-17"
+    assert age_verification.parse_decision(decision, session, user, today) == "underage"
+    verified["person"] = None
+    with pytest.raises(HTTPException):
+        age_verification.parse_decision(decision, session, user, today)
+    assert age_verification.can_redirect("https://alchemy.veriff.com/v/example")
+    assert not age_verification.can_redirect("https://alchemy.veriff.com.attacker.example/v/example")
 
 
 def test_room_cleanup_retries_failed_cloud_revocation_before_delete(monkeypatch):

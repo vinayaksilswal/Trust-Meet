@@ -16,7 +16,7 @@ from .eligibility import eligible
 from .identity import Db, Token, hash_slots, hasher
 from .models import User
 from .rooms_models import PrivateRoom, RoomInvitation, RoomMember, RoomReport
-from .runtime import digest, new_token, now, throttle
+from .runtime import digest, new_token, now, require_maintenance, throttle
 
 
 router = APIRouter(prefix="/rooms", tags=["private rooms"])
@@ -224,6 +224,7 @@ async def approve(id: UUID, member_id: UUID, db: Db, user: EligibleUser):
 @router.post("/{id}/media")
 async def media(id: UUID, db: Db, user: EligibleUser):
     require_rooms()
+    await require_maintenance()
     await throttle("room-media", str(user.id), 24, 300)
     room, member = await read_room(db, id, user, lock=True)
     require_open(room)
@@ -287,7 +288,7 @@ async def close(id: UUID, db: Db, user: EligibleUser):
     room, _ = await read_room(db, id, user, lock=True, host=True)
     room.closed_at = room.closed_at or now()
     await db.commit()
-    if not settings.hosted_invite_beta:
+    if not settings.public_conversations:
         await close_media(media_room(id), [])
 
 

@@ -4,7 +4,7 @@ import type { NextRequest } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 20;
 
-const routes = new Set(["auth", "conversations", "eligibility", "matchmaking", "me", "ready", "rooms"]);
+const routes = new Set(["auth", "conversations", "eligibility", "matchmaking", "me", "health", "ready", "rooms"]);
 const maxBodyBytes = 16_384;
 const responseHeaders = ["content-type", "retry-after", "www-authenticate"];
 
@@ -35,21 +35,28 @@ async function proxy(request: NextRequest, { params }: { params: Promise<{ path:
     return failure(404, "Endpoint not found.");
   }
 
-  const configured = process.env.CONVIYA_API_URL;
+  const bound = process.env.TRUST_MEET_API_URL;
+  const deployed = process.env.VERCEL === "1" && process.env.VERCEL_ENV !== "development";
+  const configured = bound ?? (deployed ? undefined : process.env.CONVIYA_API_URL ?? "http://127.0.0.1:8000");
   const secret = process.env.TRUST_MEET_WEB_PROXY_SECRET;
-  if (!configured || !secret || secret.length < 32) return failure(503, "The service is being configured.");
+  if (!configured || (deployed && (!secret || secret.length < 32))) {
+    return failure(503, "The service is being configured.");
+  }
   let target: URL;
   try {
-    target = new URL(configured);
-    if (target.protocol !== "https:" || target.username || target.password || target.pathname !== "/" ||
-        target.search || target.hash) return failure(503, "The service is being configured.");
+    const base = new URL(configured);
+    const localHttp = !deployed && base.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]", "api"].includes(base.hostname);
+    if ((!localHttp && base.protocol !== "https:") || base.username || base.password ||
+        base.search || base.hash) return failure(503, "The service is being configured.");
+    if (!base.pathname.endsWith("/")) base.pathname += "/";
+    target = new URL(path.join("/"), base);
   } catch {
     return failure(503, "The service is being configured.");
   }
 
-  target.pathname = "/" + path.join("/");
   target.search = request.nextUrl.search;
-  const headers = new Headers({ "x-trust-meet-proxy-key": secret });
+  const headers = new Headers();
+  if (secret) headers.set("x-trust-meet-proxy-key", secret);
   const ip = request.headers.get("x-vercel-forwarded-for");
   if (process.env.VERCEL === "1" && ip && isIP(ip)) headers.set("x-trust-meet-client-ip", ip);
   for (const key of ["origin", "content-type", "cookie"]) {

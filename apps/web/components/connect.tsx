@@ -5,7 +5,7 @@ import { conversation, invite, token, type Mode } from "@conviya/contracts";
 import { Field, Notice } from "@conviya/ui";
 import { ArrowRight, Link2, MessageCircle, Mic, Video } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { ApiError, api, errorMessage, useAccount } from "@/lib/client";
 import { Call } from "./call";
@@ -35,6 +35,8 @@ export function Connect() {
   const [inviteUrl, setInviteUrl] = useState("");
   const [copied, setCopied] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  const [autoMediaFor, setAutoMediaFor] = useState<string>();
+  const stopPreview = useRef<() => void>(null);
 
   useEffect(() => {
     const hrefToken = token.safeParse(window.location.hash.slice(1));
@@ -73,6 +75,22 @@ export function Connect() {
     if (result.conversation) client.setQueryData(callKey, result.conversation);
   }
 
+  async function requestMedia(mode: Mode) {
+    if (mode === "text") return;
+    stopPreview.current?.();
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new ApiError(0, "Open Trust Meet over trusted HTTPS to use your camera or microphone.");
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: mode === "video", audio: true });
+      stream.getTracks().forEach(track => track.stop());
+    } catch {
+      throw new ApiError(0, mode === "video"
+        ? "Allow camera and microphone access, then try finding a match again."
+        : "Allow microphone access, then try finding a match again.");
+    }
+  }
+
   const action = useMutation({
     mutationFn: async (verb: "invite" | "accept-invite" | "accept-match" | "end" | "next" | "cancel" | "block" | "search") => {
       if (verb === "search") {
@@ -80,6 +98,7 @@ export function Connect() {
           mode, language: preferences.language.trim(), country: preferences.country,
           interests: [...new Set(preferences.interests.split(",").map(value => value.trim().slice(0, 40)).filter(Boolean))].slice(0, 5),
         };
+        await requestMedia(choice.mode);
         await joinQueue({ ...choice, search_id: crypto.randomUUID() });
       } else if (verb === "invite") {
         const result = await api("/conversations/invitations", invite, { mode });
@@ -97,6 +116,7 @@ export function Connect() {
         await api("/matchmaking/cancel", z.null(), { search_id: searching.search_id, mode: searching.mode });
       } else if (active) {
         if (verb === "accept-match") {
+          if (searching?.mode === active.mode) setAutoMediaFor(active.id);
           const result = await api("/conversations/" + active.id + "/accept", conversation, {});
           client.setQueryData(callKey, result);
         } else {
@@ -152,6 +172,9 @@ export function Connect() {
            <button className="button button-outline" aria-expanded={accepting} onClick={() => setAccepting(!accepting)}>Join by invitation</button>
          </div>
          </div>
+         {profile.matchmaking_enabled && mode !== "text" && <p className="random-match-permission">
+           {mode === "video" ? "Your camera and microphone turn on" : "Your microphone turns on"} after both people accept.
+         </p>}
          {profile.matchmaking_enabled && <details className="form-stack"><summary>Matching preferences</summary>
            <Field label="Language" maxLength={24} placeholder="e.g. English" value={preferences.language} onChange={event => setPreferences({ ...preferences, language: event.target.value })} />
            <label className="field">Country preference<select value={preferences.country} onChange={event => setPreferences({ ...preferences, country: event.target.value })}><option value="">Any country</option><option value="IN">India</option></select></label>
@@ -171,7 +194,7 @@ export function Connect() {
   return <>
     <div className="random-heading"><h1>Random Connect</h1><p>One-to-one conversations by video, voice, or text.</p></div>
     {active?.state === "active" ? <>
-      <Call key={active.id} call={active} busy={action.isPending}
+      <Call key={active.id} call={active} busy={action.isPending} autoStartMedia={autoMediaFor === active.id}
         onEnd={() => action.mutate("end")} onBlock={() => action.mutate("block")}
         onNext={searching ? () => action.mutate("next") : undefined} />
       {action.isError && <Notice error>{errorMessage(action.error)}</Notice>}
@@ -182,7 +205,7 @@ export function Connect() {
         modeOnStage === "video" ? "Your match’s video will appear here" :
         modeOnStage === "audio" ? "Your voice conversation starts here" : "Start a search to meet someone"
       } />
-      <PreviewTile key={modeOnStage + String(canConnect)} mode={modeOnStage} allowPreview={canConnect} />
+      <PreviewTile key={modeOnStage + String(canConnect)} mode={modeOnStage} allowPreview={canConnect} ref={stopPreview} />
     </RandomStudio>}
   </>;
 }

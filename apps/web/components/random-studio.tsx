@@ -2,7 +2,7 @@
 
 import { LockKeyhole, MessageCircle, Mic, ShieldCheck, UserRound, Video, VideoOff } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
+import { useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
 import type { Mode } from "@conviya/contracts";
 import { Notice } from "@conviya/ui";
 
@@ -33,7 +33,7 @@ export function RandomTile({ name, mode, hint, children, feed, local }: {
   </section>;
 }
 
-export function PreviewTile({ mode, allowPreview }: { mode: Mode; allowPreview: boolean }) {
+export function PreviewTile({ mode, allowPreview, ref }: { mode: Mode; allowPreview: boolean; ref?: Ref<() => void> }) {
   const video = useRef<HTMLVideoElement>(null);
   const camera = useRef<MediaStream | null>(null);
   const generation = useRef(0);
@@ -50,6 +50,11 @@ export function PreviewTile({ mode, allowPreview }: { mode: Mode; allowPreview: 
   }
 
   useEffect(() => () => releaseCamera(), []);
+  useImperativeHandle(ref, () => () => {
+    releaseCamera();
+    setOn(false);
+    setLoading(false);
+  }, []);
 
   async function togglePreview() {
     if (on) {

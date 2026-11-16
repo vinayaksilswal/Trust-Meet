@@ -4,18 +4,17 @@ import { ArrowLeft } from "lucide-react";
 
 const sections = new Map([
   ["safety", { title: "Safety Center", lines: [
-    "Trust Meet's local conversation experience is for adults. Confirm your email and complete the eligibility check before joining.",
-    "Your microphone and camera start disabled. Use the conversation controls to turn them on, leave, or block the other participant.",
-    "Use Report to flag behaviour such as harassment, threats, scams, or suspected underage use. Reports are saved for review. This development environment has no staffed review service.",
+    "Trust Meet conversations are for adults. Confirm your email and complete the eligibility check before joining.",
+    "Random Connect asks for device access when you start a search and turns on the devices for your selected mode after both people accept. Use the call controls to mute, turn off your camera, leave, or block the other participant.",
+    "Use Report to flag behaviour such as harassment, threats, scams, or suspected underage use. Reports are saved for review.",
   ] }],
   ["about", { title: "About Trust Meet", lines: [
     "Trust Meet is an India-first conversation platform for adults. Its first experience supports one-to-one video, voice, and text.",
-    "The development environment is for local testing. Public registration and conversations require launch approval.",
+    "Use Random Connect to meet someone new, or create a Private Room and share an invitation.",
   ] }],
-  ["privacy", { title: "Privacy in development", lines: [
-    "The local environment stores email addresses, display names, password hashes, eligibility outcomes, and conversation timestamps. It discards submitted birth dates.",
+  ["privacy", { title: "Privacy", lines: [
+    "Trust Meet stores account details, eligibility outcomes, and conversation timestamps. Online age verification takes place with Veriff. Trust Meet stores the result and discards the verified birth date after checking your age.",
     "LiveKit carries media and chat messages between participants. Trust Meet does not enable server-side session recording or store chat history in this version.",
-    "Use synthetic identities and test data in the local environment.",
   ] }],
   ["wellness", { title: "Mental Wellness" }],
   ["business", { title: "Business Connect" }],

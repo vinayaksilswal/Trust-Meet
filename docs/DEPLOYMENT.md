@@ -1,44 +1,42 @@
-# Deploy Trust Meet
+# Deploy Trust Meet on Vercel
 
-The hosted configuration supports an invite-only beta for Random Connect and Private Rooms. Keep all conversation flags off until the hosted checks below pass. Public access needs approved scalable age assurance, staffed review and a production safety assessment.
+The repository root defines one Vercel project with two HTTP services and a background daemon. Import the entire repository and leave **Root Directory** at the repository root.
 
-## 1. Host the FastAPI service
+- `web` serves all public paths, including the same-origin `/api/*` routes. Its server-side handler forwards approved API paths, session cookies and the browser origin.
+- `api` is the internal FastAPI service. `web` calls it through Vercel's `TRUST_MEET_API_URL` binding. Vercel injects the URL at runtime.
+- `maintenance` runs one worker in Mumbai (`bom1`) for expired calls, room closure and media-token revocation. It uses PostgreSQL, Redis and LiveKit Cloud directly, with no public route. Vercel runs daemons only on production deployments during the beta period.
 
-Build the existing image from the repository root with `docker build -f services/api/Dockerfile -t trust-meet-api .`. Deploy it to a managed container platform with a persistent instance and HTTPS ingress. The image runs the FastAPI process and its cleanup worker. Configure `/health` as a liveness check, keep at least one instance running, and disable scale-to-zero. Keep PostgreSQL and Redis private to the hosting network when the providers support it.
+[Vercel Services](https://vercel.com/docs/services) · [Service bindings](https://vercel.com/docs/services/bindings) · [Vercel Daemons](https://vercel.com/docs/daemons)
 
-Set the variables from [the hosted environment example](../.env.hosted.example). Use a fresh PostgreSQL database and Redis instance. Use verified TLS for both and a dedicated LiveKit Cloud project for each environment. In the migration job, run `alembic upgrade head` before sending traffic. Do not copy local account data or point the hosted release at the LAN database.
+## Providers and migration
 
-Set `WEB_ORIGIN` to the exact HTTPS frontend domain without a trailing slash. Generate an independent proxy secret, for example with `openssl rand -hex 32`. Set it as `WEB_PROXY_SECRET` on the API host. Send account emails via Resend SMTP on port 587 with STARTTLS and a verified sender. Configure the SMTP API key, database password, Redis credentials and LiveKit secret on the API host only. [Resend SMTP configuration](https://resend.com/changelog/smtp-service) · [LiveKit Project URL](https://docs.livekit.io/intro/basics/connect/)
+1. Provision TLS-enabled PostgreSQL and Redis near the deployment. Use a managed PostgreSQL pooler sized for serverless traffic. Provision a dedicated LiveKit Cloud project, a verified Resend sender and a Veriff **Identity Verification** integration that returns the document-verified birth date and the supplied vendor data. Use separate resources for staging and production.
+2. Configure the deployment variables in [the hosted environment example](../.env.hosted.example). Set `WEB_ORIGIN` to the exact public HTTPS domain without a trailing slash. Generate one high-entropy secret and use it for both `WEB_PROXY_SECRET` and `TRUST_MEET_WEB_PROXY_SECRET`. Scope each secret to the services that consume it if your project supports per-service variables. The worker uses the same production flags, database, Redis and provider configuration for expiry and revocation. Avoid setting `TRUST_MEET_API_URL` manually.
+3. Apply Alembic migrations before deploying the application. From the repository root, with the target environment exported, run `python -m alembic -c services/api/alembic.ini upgrade head`. Avoid reusing the LAN database because it contains local test identities and media records.
+4. Start with the three `ENABLE_*` conversation flags off. Set `PUBLIC_CONVERSATIONS=true` once a production Veriff integration is configured. Public signup requires verified email. All eligible adults can use the features after passing online age verification. Existing local self-attested ages and old invite-roster entries do not grant production eligibility.
 
-## 2. Import the repository into Vercel
+[Resend SMTP](https://resend.com/changelog/smtp-service) · [LiveKit Cloud connection setup](https://docs.livekit.io/intro/basics/connect/) · [Veriff sessions](https://devdocs.veriff.com/apidocs/v1sessions)
 
-- Framework preset **Next.js**
-- Root Directory **apps/web**
-- Enable **Include source files outside of the Root Directory in the Build Step** for the shared packages.
-- Select **Node.js 24.x**. Use the default install, build and output settings.
-- Add **CONVIYA_API_URL** with the API's HTTPS origin, such as `https://api.example.com`.
-- Add **TRUST_MEET_WEB_PROXY_SECRET** as a sensitive server-side variable with the same value as `WEB_PROXY_SECRET`. Avoid the `NEXT_PUBLIC_` prefix.
-- Assign the frontend domain you entered as `WEB_ORIGIN`. Give Preview its own API, credentials and canonical domain if you need end-to-end preview testing.
+## Local Services test
 
-The frontend's same-origin API route passes the session cookie to FastAPI and authenticates the proxy hop. Clients establish media directly with LiveKit Cloud. FastAPI rejects unsigned requests except for its liveness check. [Vercel monorepo project settings](https://vercel.com/docs/monorepos/monorepo-faq) · [Vercel request headers](https://vercel.com/docs/headers/request-headers)
+Start the database, Redis, test mail and LiveKit dependencies, apply migrations, and run `npx vercel dev --local` from the repository root with development settings. Verify that `/api/auth/options` and `/api/ready` respond through the frontend. Use normal localhost development settings in `.env`. Vercel's production binding and provider credentials belong in the hosted environment.
 
-## 3. Admit two reviewed adult testers and verify staging
+## Validate before opening real traffic
 
-Run the operator command inside the API host or an authorized one-off container with the same environment. Verify each adult and their association with the invited email under your approved review procedure before running the command. Use individual operator accounts with MFA enforced by the hosting provider. Keep identity documents and dates of birth out of the command and application database.
+Use a separate staging project with its own production deployment to test the daemon. Test with the three feature flags enabled on staging.
+
+- Register using an ordinary email address, confirm it, complete real adult verification, and confirm an underage or unverified account cannot join. Check that no document or birth date appears in Trust Meet storage or logs. Approved documents, consent, provider retention, and support for false rejections need review for the intended market.
+- On two real devices and separate networks, test audio and camera permission denial, Random Connect video, text, Next, private room approval, mute, reporting, removal and close.
+- Test replay of initial and refreshed LiveKit tokens after an end, block, removal, closure and suspension. Verify the daemon stays healthy, retries failed removals and drains the queue. Enable hosting-layer abuse controls and alerts before public traffic.
+- Staff report review and escalation, and rehearse suspension, media-provider outage recovery, backups and rollback.
+
+Use an authorized operator environment with the target credentials for reports and account suspension.
 
 ```sh
-python -m conviya.beta_ops admit --email tester@example.com --reviewer operator-id --adult-reviewed
-python -m conviya.beta_ops reports
-python -m conviya.beta_ops suspend --email tester@example.com --reviewer operator-id
+python -m conviya.moderation_ops reports
+python -m conviya.moderation_ops suspend --email tester@example.com --reviewer operator-id
 ```
 
-Ask the two testers to register with their admitted email addresses and complete email confirmation. An uninvited address receives a neutral response and cannot sign in. An approved tester's eligibility follows their reviewed admission and email confirmation.
+For emergency shutdown, set `ENABLE_CONVERSATIONS`, `ENABLE_MATCHMAKING` and `ENABLE_PRIVATE_ROOMS` to false and redeploy the API and daemon together. Keep `PUBLIC_CONVERSATIONS=true` so the daemon continues provider revocation. Verify active media sessions stopped.
 
-In a separate staging environment, enable `ENABLE_CONVERSATIONS`, `ENABLE_MATCHMAKING`, and `ENABLE_PRIVATE_ROOMS` and verify all of the following before setting the same flags on your beta deployment.
-
-- Frontend `/api/ready` responds through Vercel. Direct API access fails except for `/health`. An unlisted tester cannot register or sign in. Resend delivers verification and recovery links to both invited testers.
-- From two separate networks and real devices, run a random video match and a private video room. Test Next, reconnection, waiting-room admission, mute, report, removal and closure.
-- Save separate valid and refreshed test tokens. Replay them directly after an end, block, host removal, room closure and operator suspension, including when the participant has already disconnected. Check that the worker drains pending removals and revokes media through the provider. [LiveKit token refresh and revocation](https://docs.livekit.io/frontends/reference/tokens-grants/#token-lifecycle)
-- Assign a human operator to review reports and rehearse suspension, provider outage recovery, backups and rollback.
-
-For emergency shutdown, set all three feature flags to false and restart the API with the hosted beta configuration still enabled so cleanup can continue. Check the API and LiveKit logs and verify that sessions stopped. If the worker or provider is unavailable, use the LiveKit console to end active sessions and disable media access under your incident procedure.
+[LiveKit token refresh and revocation](https://docs.livekit.io/frontends/reference/tokens-grants/#token-lifecycle)

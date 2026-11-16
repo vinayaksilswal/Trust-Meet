@@ -6,16 +6,18 @@ test("hosted proxy signs requests, forwards sessions, and enforces the route and
   const secret = "p".repeat(48);
   const original = { ...process.env };
   t.after(() => {
-    for (const key of ["VERCEL", "CONVIYA_API_URL", "TRUST_MEET_WEB_PROXY_SECRET"]) {
+    for (const key of ["VERCEL", "VERCEL_ENV", "TRUST_MEET_API_URL", "CONVIYA_API_URL", "TRUST_MEET_WEB_PROXY_SECRET"]) {
       if (original[key] === undefined) delete process.env[key];
       else process.env[key] = original[key];
     }
   });
   process.env.VERCEL = "1";
-  process.env.CONVIYA_API_URL = "https://api.example.com";
+  process.env.VERCEL_ENV = "production";
+  process.env.TRUST_MEET_API_URL = "https://internal.example.com/service/api/";
+  process.env.CONVIYA_API_URL = "https://legacy.example.com";
   process.env.TRUST_MEET_WEB_PROXY_SECRET = secret;
   const forwarding = t.mock.method(globalThis, "fetch", async (target, options) => {
-    assert.equal(target.href, "https://api.example.com/auth/login");
+    assert.equal(target.href, "https://internal.example.com/service/api/auth/login");
     assert.equal(options.headers.get("x-trust-meet-proxy-key"), secret);
     assert.equal(options.headers.get("x-trust-meet-client-ip"), "203.0.113.9");
     assert.equal(options.headers.get("cookie"), "__Host-conviya=opaque");
@@ -46,4 +48,6 @@ test("hosted proxy signs requests, forwards sessions, and enforces the route and
   assert.equal((await GET(...makeRequest(["internal"]))).status, 404);
   assert.equal((await POST(...makeRequest(["auth", "login"], { method: "POST", body: "x".repeat(16_385) }))).status, 413);
   assert.equal(forwarding.mock.callCount(), 1);
+  delete process.env.TRUST_MEET_API_URL;
+  assert.equal((await GET(...makeRequest(["auth", "options"]))).status, 503);
 });

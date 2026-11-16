@@ -6,10 +6,11 @@ from sqlalchemy import delete, func, select, update
 
 from .config import settings
 from .conversations import close_call_media, close_media, finish, lock_transitions, revoke_participant
-from .models import AccountToken, Conversation, LoginSession
+from .models import AccountToken, AgeVerificationSession, Conversation, LoginSession
 from .rooms import media_room, room_participants
 from .rooms_models import PrivateRoom, RoomInvitation, RoomMember
-from .runtime import Sessions, now
+from .event_loop import factory
+from .runtime import MAINTENANCE_KEY, Sessions, cache, engine, now
 
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,8 @@ async def maintain():
     while True:
         try:
             await sweep()
+            if settings.public_conversations:
+                await cache.set(MAINTENANCE_KEY, "1", ex=90)
         except Exception as err:
             logger.error("Conversation maintenance failed (%s)", type(err).__name__)
         await asyncio.sleep(3)
@@ -28,7 +31,7 @@ async def sweep():
     stamp = now()
     async with Sessions() as db:
         await lock_transitions(db)
-        stop_all = settings.hosted_invite_beta and not settings.enable_conversations
+        stop_all = settings.public_conversations and not settings.enable_conversations
         expired = (await db.scalars(
             select(Conversation).where(
                 Conversation.state != "ended",
@@ -39,10 +42,10 @@ async def sweep():
             await finish(db, call)
         await db.execute(delete(AccountToken).where(AccountToken.expires_at <= now()))
         await db.execute(delete(LoginSession).where(LoginSession.expires_at <= now()))
+        await db.execute(delete(AgeVerificationSession).where(AgeVerificationSession.expires_at <= stamp))
         await db.commit()
-
     async with Sessions() as db:
-        if settings.hosted_invite_beta and not settings.enable_private_rooms:
+        if settings.public_conversations and not settings.enable_private_rooms:
             await db.execute(update(PrivateRoom).where(PrivateRoom.closed_at.is_(None), PrivateRoom.ends_at > now())
                              .values(closed_at=func.now()))
         await db.commit()
@@ -56,7 +59,7 @@ async def sweep():
         for call in pending:
             # Self-hosted LiveKit can replay a still-valid grant after room deletion.
             # Clean up immediately, and again after the last issued grant has expired.
-            if await close_call_media(db, call.id) and (settings.hosted_invite_beta or
+            if await close_call_media(db, call.id) and (settings.public_conversations or
                                                         call.ended_at <= now() - timedelta(seconds=35)):
                 call.media_closed_at = now()
             else:
@@ -73,7 +76,7 @@ async def sweep():
         for room in closed:
             boundary = room.closed_at or room.ends_at
             if await close_media(media_room(room.id), await room_participants(db, room.id)) and (
-                settings.hosted_invite_beta or boundary <= now() - timedelta(seconds=35)
+                settings.public_conversations or boundary <= now() - timedelta(seconds=35)
             ):
                 room.media_closed_at = now()
             else:
@@ -92,3 +95,17 @@ async def sweep():
             else:
                 member.media_retry_at = now() + timedelta(seconds=15)
         await db.commit()
+
+
+async def run_worker():
+    try:
+        await maintain()
+    finally:
+        await cache.aclose()
+        await engine.dispose()
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    with asyncio.Runner(loop_factory=factory) as runner:
+        runner.run(run_worker())

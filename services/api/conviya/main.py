@@ -11,21 +11,22 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from redis.exceptions import RedisError
 
-from . import conversations, eligibility, identity, matchmaking, rooms
+from . import age_verification, conversations, eligibility, identity, matchmaking, rooms
 from .config import settings
 from .maintenance import maintain
-from .runtime import cache, engine
+from .runtime import cache, engine, require_maintenance
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    worker = asyncio.create_task(maintain())
+    worker = None if getattr(app.state, "dedicated_worker", False) else asyncio.create_task(maintain())
     try:
         yield
     finally:
-        worker.cancel()
-        with suppress(asyncio.CancelledError):
-            await worker
+        if worker:
+            worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await worker
     await cache.aclose()
     await engine.dispose()
 
@@ -75,6 +76,8 @@ async def ready():
         async with engine.connect() as connection:
             await connection.execute(text("SELECT version_num FROM alembic_version"))
         await cache.ping()
+        if settings.enable_conversations:
+            await require_maintenance()
     except (SQLAlchemyError, RedisError, OSError):
         return JSONResponse({"status": "unavailable"}, 503)
     return {"status": "ready"}
@@ -82,6 +85,7 @@ async def ready():
 
 app.include_router(identity.router)
 app.include_router(eligibility.router)
+app.include_router(age_verification.router)
 app.include_router(conversations.router)
 app.include_router(matchmaking.router)
 app.include_router(rooms.router)

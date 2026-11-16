@@ -5,11 +5,14 @@ import { credentials, message, registration, token } from "@conviya/contracts";
 import { Field, Notice } from "@conviya/ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type FormEvent } from "react";
+import { useEffect, type FormEvent } from "react";
 import { z } from "zod";
 import { api, errorMessage, useAccount } from "@/lib/client";
 
 export type AccountAction = "settings" | "login" | "register" | "recover" | "reset" | "verify" | "resend";
+const onlineDecision = z.object({
+  state: z.enum(["pending", "verified", "underage", "retry"]), url: z.url().optional(),
+});
 
 const titles = {
   login: "Sign in", register: "Create an account", recover: "Recover your account",
@@ -108,6 +111,7 @@ function Settings() {
     <h2>Age eligibility</h2>
     {account.data.eligible ? <Notice>Adult eligibility confirmed.</Notice> :
       age.data?.eligible === false ? <Notice error>This account is ineligible for conversations.</Notice> :
+      account.data.online_age_check_available ? <OnlineAgeCheck /> :
       account.data.age_check_available ? <form className="form-stack" onSubmit={event => {
         event.preventDefault();
         age.mutate(String(new FormData(event.currentTarget).get("birth_date")));
@@ -121,4 +125,34 @@ function Settings() {
     <div className="form-links">{account.data.eligible && <Link href="/connect">Open Random Connect</Link>}
     <button className="button button-outline" disabled={logout.isPending} onClick={() => logout.mutate()}>Sign out</button></div>
   </article>;
+}
+
+function OnlineAgeCheck() {
+  const client = useQueryClient();
+  const check = useMutation({
+    mutationFn: (action: "start" | "status") => api("/eligibility/" + action, onlineDecision, {}),
+    onSuccess: async (result, action) => {
+      if (result.state === "verified") await client.invalidateQueries({ queryKey: ["account"] });
+      if (action === "start" && result.url) window.location.assign(result.url);
+    },
+  });
+  const checkStatus = check.mutate;
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has("age_verification")) {
+      window.history.replaceState(null, "", window.location.pathname);
+      checkStatus("status");
+    }
+  }, [checkStatus]);
+  const status = check.data?.state;
+  if (status === "underage") return <Notice error>This account does not meet the 18+ age requirement.</Notice>;
+  return <div className="form-stack">
+    <p>Verify your age with Veriff before joining Random Connect or Private Rooms. Trust Meet stores your eligibility result.</p>
+    {status === "pending" && <Notice>Verification is still pending. Check again after completing the steps with Veriff.</Notice>}
+    {status === "retry" && <Notice>Start a verification to continue.</Notice>}
+    {check.isError && <Notice error>{errorMessage(check.error)}</Notice>}
+    <div className="action-row">
+      <button className="button button-primary" disabled={check.isPending} onClick={() => check.mutate("start")}>Verify my age</button>
+      <button className="button button-outline" disabled={check.isPending} onClick={() => check.mutate("status")}>Check verification status</button>
+    </div>
+  </div>;
 }

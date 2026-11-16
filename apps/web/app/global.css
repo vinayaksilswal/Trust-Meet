@@ -231,6 +231,7 @@ input, select { width: 100%; color: var(--ink); border: 1px solid #bfcfc8; paddi
 .random-entry .mode-choice { min-height: 43px; background: #1a2532; border-color: #384755; }
 .random-entry .mode-choice:has(input:checked) { background: #253f45; border-color: #68bba9; color: #c1f5e8; }
 .random-controls summary { color: #b5cfdb; font-size: 13px; cursor: pointer; width: fit-content; font-weight: 690; }
+.random-match-permission { margin-top: 9px; font-size: 13px; }
 .random-controls details.form-stack { margin: 11px 0 0; }
 .random-side { display: flex; flex-direction: column; overflow: hidden; }
 .random-side-heading { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--studio-line); padding: 15px; }

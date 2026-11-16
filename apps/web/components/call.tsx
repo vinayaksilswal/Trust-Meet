@@ -22,9 +22,10 @@ type Props = {
   onBlock?: () => void;
   group?: boolean;
   onNext?: () => void;
+  autoStartMedia?: boolean;
 };
 
-export function Call({ call, busy, onEnd, onBlock, onNext, group = false }: Props) {
+export function Call({ call, busy, onEnd, onBlock, onNext, group = false, autoStartMedia = false }: Props) {
   const [connection, setConnection] = useState<ConnectionState>(ConnectionState.Connecting);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
@@ -65,6 +66,7 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false }: Prop
     setAudioBlocked(false);
     setSpeakers([]);
     setError("");
+    setControlBusy(autoStartMedia && retry === 0 && call.mode !== "text");
     const elements = new Set<HTMLMediaElement>();
 
     function attachRemote(track: RemoteTrack) {
@@ -112,6 +114,18 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false }: Prop
         await instance.connect(credential.url, credential.token, { autoSubscribe: call.mode !== "text" });
         if (controller.signal.aborted) { await instance.disconnect(); return; }
         updatePeers();
+        if (autoStartMedia && retry === 0 && call.mode !== "text") {
+          const results = await Promise.allSettled([
+            instance.localParticipant.setMicrophoneEnabled(true),
+            ...(call.mode === "video" ? [instance.localParticipant.setCameraEnabled(true)] : []),
+          ]);
+          if (controller.signal.aborted) return;
+          setMic(results[0].status === "fulfilled");
+          if (call.mode === "video") setCamera(results[1].status === "fulfilled");
+          if (results.some(result => result.status === "rejected")) {
+            setError("A media device could not start. Check permissions and use the call controls to retry.");
+          }
+        }
         if (call.mode !== "text" && navigator.mediaDevices) {
           const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
           if (!controller.signal.aborted) setSpeakers(devices.filter(device => device.kind === "audiooutput" && device.deviceId));
@@ -121,6 +135,8 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false }: Prop
         setConnection(ConnectionState.Disconnected);
         setError(errorMessage(cause));
         await instance.disconnect();
+      } finally {
+        if (!controller.signal.aborted) setControlBusy(false);
       }
     }
 
@@ -132,7 +148,7 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false }: Prop
       if (room.current === instance) room.current = null;
       void instance.disconnect();
     };
-  }, [callPath, call.mode, retry]);
+  }, [autoStartMedia, callPath, call.mode, retry]);
 
   useEffect(() => {
     if (history.current) history.current.scrollTop = history.current.scrollHeight;

@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import settings
-from .models import AccountToken, BetaAdmission, LoginSession, User
+from .models import AccountToken, LoginSession, User
 from .runtime import client_key, database, digest, new_token, now, throttle
 
 
@@ -99,7 +99,7 @@ async def current_user(request: Request, db: Db) -> User:
         .join(LoginSession)
         .where(LoginSession.token_hash == digest(token), LoginSession.expires_at > now(), User.status == "active")
     )
-    if not user or not can_sign_in(user) or not await admission_allows(db, user.email):
+    if not user or not can_sign_in(user):
         raise HTTPException(401, "Your session has expired or is no longer available.")
     return user
 
@@ -111,14 +111,6 @@ def can_sign_in(user: User):
     return user.email_verified_at is not None or settings.lan_skip_email_verification
 
 
-async def admission_allows(db: Db, email: str):
-    if not settings.hosted_invite_beta:
-        return True
-    return await db.scalar(select(BetaAdmission.email).where(
-        BetaAdmission.email == email, BetaAdmission.suspended_at.is_(None)
-    )) is not None
-
-
 @router.get("/options")
 async def options():
     return {"email_verification_required": not settings.lan_skip_email_verification}
@@ -127,8 +119,6 @@ async def options():
 @router.post("/register", status_code=202)
 async def register(payload: Registration, request: Request, db: Db):
     await auth_limits(request, payload.email, "register")
-    if not await admission_allows(db, payload.email.casefold()):
-        return {"message": "If your email is invited, check your inbox for a verification link."}
     async with hash_slots:
         password_hash = await asyncio.to_thread(hasher.hash, payload.password)
     statement = insert(User).values(
@@ -140,8 +130,6 @@ async def register(payload: Registration, request: Request, db: Db):
         return {"message": "Email confirmation is paused for LAN testing. You can sign in now."}
     if user:
         await issue_account_link(db, user, "verify")
-    if settings.hosted_invite_beta:
-        return {"message": "If your email is invited, check your inbox for a verification link."}
     return {"message": "Check your inbox for an email verification link."}
 
 
@@ -151,7 +139,7 @@ async def resend(payload: Address, request: Request, db: Db):
         return {"message": "Email confirmation is paused for LAN testing. You can sign in now."}
     await auth_limits(request, payload.email, "resend")
     user = await find_user(db, payload.email)
-    if user and user.status == "active" and user.email_verified_at is None and await admission_allows(db, user.email):
+    if user and user.status == "active" and user.email_verified_at is None:
         await issue_account_link(db, user, "verify")
     return {"message": "If the address needs verification, a link is on its way."}
 
@@ -188,7 +176,7 @@ async def verify(payload: TokenInput, request: Request, db: Db):
 async def recover(payload: Address, request: Request, db: Db):
     await auth_limits(request, payload.email, "recover")
     user = await find_user(db, payload.email)
-    if user and user.status == "active" and user.email_verified_at and await admission_allows(db, user.email):
+    if user and user.status == "active" and user.email_verified_at:
         await issue_account_link(db, user, "reset")
     return {"message": "If the address has a verified account, a reset link is on its way."}
 
@@ -213,7 +201,7 @@ async def login(payload: Credentials, request: Request, response: Response, db: 
             await asyncio.to_thread(hasher.verify, user.password_hash if user else dummy_hash, payload.password)
     except VerifyMismatchError as err:
         raise HTTPException(401, "Email or password is incorrect.") from err
-    if not user or user.status != "active" or not await admission_allows(db, user.email):
+    if not user or user.status != "active":
         raise HTTPException(401, "Email or password is incorrect.")
     if not can_sign_in(user):
         raise HTTPException(403, "Verify your email before signing in.")

@@ -26,3 +26,9 @@ The Random Connect redesign and queue fix passed all eight Chromium tests throug
 ## Hosted beta preparation
 
 The Vercel-mode Next.js build, migration 0004 and the local schema check passed. Hosted configuration and authorization checks passed, along with the same-origin proxy test for session headers, backend authentication, route restrictions and body limits. The Cloud revocation sequencing test uses a simulated provider. Run the deployment guide's live smoke checks with the hosted database, email sender, LiveKit Cloud and two real devices before enabling beta traffic.
+
+## Public signup and Vercel Services
+
+Migration 0005, eligibility and hosted proxy tests, and the Vercel configuration schema check passed. The browser suite passed across the full run and a targeted rerun of the new permission test. The permission test checks denied access, waits for mutual consent, and receives synthetic video and audio on both sides.
+
+Vercel CLI detected both services during `vercel dev --local`. Windows denied a symlink while the CLI installed its builders, so the local Vercel service runtime and the hosted provider integrations remain unverified.

@@ -58,6 +58,23 @@ class BetaAdmission(Base):
     suspended_at: Mapped[datetime | None]
 
 
+class AgeVerificationSession(Base):
+    __tablename__ = "age_verification_sessions"
+
+    user_id: Mapped[UUID] = mapped_column(sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    provider_session_id: Mapped[UUID] = mapped_column(unique=True)
+    resume_url: Mapped[str] = mapped_column(sa.Text)
+    expires_at: Mapped[datetime] = mapped_column(index=True)
+
+
+class AccountSuspension(Base):
+    __tablename__ = "account_suspensions"
+
+    user_id: Mapped[UUID] = mapped_column(sa.ForeignKey("users.id"), primary_key=True)
+    suspended_by: Mapped[str] = mapped_column(sa.String(100))
+    suspended_at: Mapped[datetime] = mapped_column(server_default=sa.func.now())
+
+
 class Conversation(Base):
     __tablename__ = "conversations"
     __table_args__ = (

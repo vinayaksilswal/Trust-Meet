@@ -16,7 +16,7 @@ from .config import settings
 from .eligibility import eligible, require_eligible
 from .identity import CurrentUser, Db, TokenInput
 from .models import Block, Conversation, Participant, Report, User
-from .runtime import digest, new_token, now, throttle
+from .runtime import digest, new_token, now, require_maintenance, throttle
 
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
@@ -142,11 +142,11 @@ async def revoke_participant(name: str, user_id: UUID):
         async with livekit() as client:
             await client.room.remove_participant(api.RoomParticipantIdentity(
                 room=name, identity=str(user_id),
-                revoke_token_ts=ceil(now().timestamp()) + 3 if settings.hosted_invite_beta else 0,
+                revoke_token_ts=ceil(now().timestamp()) + 3 if settings.public_conversations else 0,
             ))
         return True
     except api.TwirpError as err:
-        if err.code == "not_found" and not settings.hosted_invite_beta:
+        if err.code == "not_found" and not settings.public_conversations:
             return True
         logger.warning("LiveKit participant removal failed (%s)", err.code)
     except (TimeoutError, OSError):
@@ -155,7 +155,7 @@ async def revoke_participant(name: str, user_id: UUID):
 
 
 async def close_media(name: str, participants: list[UUID]):
-    if not settings.hosted_invite_beta:
+    if not settings.public_conversations:
         return await delete_room(name)
     if not participants:
         return True
@@ -244,6 +244,7 @@ async def accept_match(call_id: UUID, user: EligibleUser, db: Db):
 @router.post("/{call_id}/media")
 async def media_token(call_id: UUID, user: EligibleUser, db: Db):
     check_enabled()
+    await require_maintenance()
     await throttle("media", str(user.id), 24, 300)
     await lock_transitions(db)
     call = await call_for(db, call_id, user.id)

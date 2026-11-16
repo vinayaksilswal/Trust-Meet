@@ -198,6 +198,48 @@ test("Random Connect waits for mutual consent and can skip to a fresh search", a
   }
 });
 
+test("Random Connect asks for both devices and publishes only after both people accept", async ({ browser, request }) => {
+  const { first, second, alice, amit } = await twoAccounts(browser, request);
+  try {
+    await alice.addInitScript(() => {
+      const state = window as typeof window & { allowTestMedia: boolean; testMediaRequests: MediaStreamConstraints[] };
+      state.allowTestMedia = false;
+      state.testMediaRequests = [];
+      const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = constraints => {
+        state.testMediaRequests.push(constraints);
+        return state.allowTestMedia ? getUserMedia(constraints) : Promise.reject(new DOMException("Denied", "NotAllowedError"));
+      };
+    });
+    await Promise.all([alice.goto("/connect"), amit.goto("/connect")]);
+    await alice.getByRole("button", { name: "Find a match" }).click();
+    await expect(alice.getByRole("alert").filter({ hasText: "Allow camera and microphone access" })).toBeVisible();
+    await expect(alice.getByRole("heading", { name: "Looking for someone" })).toHaveCount(0);
+    const mediaControl = alice.evaluate(() => {
+      const state = window as typeof window & { allowTestMedia: boolean; testMediaRequests: MediaStreamConstraints[] };
+      state.allowTestMedia = true;
+      return state.testMediaRequests;
+    });
+    expect(await mediaControl).toContainEqual({ video: true, audio: true });
+    await alice.getByRole("button", { name: "Find a match" }).click();
+    await expect(alice.getByRole("heading", { name: "Looking for someone" })).toBeVisible();
+    await amit.getByRole("button", { name: "Find a match" }).click();
+    await alice.getByRole("button", { name: "Accept match" }).click();
+    await expect(alice.getByText("Waiting for the other participant to accept…")).toBeVisible();
+    await expect(alice.getByTestId("local-preview")).toHaveCount(0);
+    await amit.getByRole("button", { name: "Accept match" }).click();
+    for (const page of [alice, amit]) {
+      await expect(page.getByRole("button", { name: "Mute microphone" })).toBeEnabled({ timeout: 20_000 });
+      await expect(page.getByRole("button", { name: "Disable camera" })).toBeEnabled();
+      await expect(page.getByTestId("remote-video").locator("video")).toHaveCount(1);
+      await expect(page.getByTestId("remote-audio").locator("audio")).toHaveCount(1);
+    }
+    await alice.getByRole("button", { name: "End conversation" }).click();
+  } finally {
+    await Promise.all([first.close(), second.close()]);
+  }
+});
+
 test("private room hosts can approve, mute, and remove guests in a group LiveKit call", async ({ browser, request }) => {
   const { first, second, alice, amit } = await twoAccounts(browser, request);
   const extra = await browser.newContext({ permissions: ["camera", "microphone"] });

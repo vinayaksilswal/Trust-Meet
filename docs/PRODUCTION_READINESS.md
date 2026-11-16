@@ -1,6 +1,6 @@
 # Production readiness
 
-The hosted configuration supports an invite-only adult beta on Vercel, a persistent API host, and LiveKit Cloud. Conversation flags default to off. The hosted stack and provider enforcement have not been tested against live production credentials.
+The hosted configuration supports public signup and verified adult access on Vercel, with an internal API, maintenance daemon, Veriff identity verification and LiveKit Cloud. Conversation flags default to off. The hosted stack and provider enforcement need live verification with production credentials.
 
 ## Implemented for local development
 
@@ -13,9 +13,9 @@ The hosted configuration supports an invite-only adult beta on Vercel, a persist
 
 ## Partial
 
-- TrustOS stores categorized conversation and room reports and blocks. The hosted operator CLI records admission and suspension and lists reports. Staffed case handling, appeal tooling and escalation remain open.
+- TrustOS stores categorized conversation and room reports and blocks. The operator CLI records account suspensions and lists reports. Staffed case handling, appeal tooling and escalation remain open.
 - Conversation timestamps support duration tracking. Billing-grade usage metering, live occupancy and cost controls are pending.
-- Hosted beta eligibility uses an operator-reviewed adult roster and mandatory email verification. Provider configuration and hosted revocation checks remain required. Self-hosted development tokens can replay within their validity window.
+- Hosted eligibility requires confirmed email and an authenticated adult verification result from Veriff. Live Veriff and LiveKit Cloud checks remain open. Self-hosted development tokens can replay within their validity window.
 - Discovery includes gated entries for business, wellness, fitness and astrology. Expert onboarding, appointments, Razorpay test settlement and public access to these modules are pending.
 
 ## Blocked pending authorization and operational reviews

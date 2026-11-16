@@ -6,7 +6,8 @@ from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert
 
 from .config import settings
-from .identity import CurrentUser, Db, admission_allows, can_sign_in
+from .age_verification import PROVIDER, adult_on
+from .identity import CurrentUser, Db, can_sign_in
 from .models import Eligibility, User
 from .runtime import now, throttle
 
@@ -28,7 +29,7 @@ class DevelopmentAgeAssurance:
     name = "development_self_report"
 
     def is_adult(self, birth_date: date, today: date) -> bool:
-        return (today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))) >= 18
+        return adult_on(birth_date, today)
 
 
 def assurance_provider() -> AgeAssurance | None:
@@ -38,9 +39,9 @@ def assurance_provider() -> AgeAssurance | None:
 
 
 async def eligible(db: Db, user: User):
-    if settings.hosted_invite_beta:
-        return bool(user.status == "active" and user.email_verified_at and await admission_allows(db, user.email))
     row = await db.get(Eligibility, user.id)
+    if settings.public_conversations:
+        return bool(user.status == "active" and user.email_verified_at and row and row.is_adult and row.provider == PROVIDER)
     provider = assurance_provider()
     return bool(can_sign_in(user) and user.status == "active" and provider and
                 row and row.is_adult and row.provider == provider.name)
@@ -57,6 +58,7 @@ async def me(user: CurrentUser, db: Db):
     return {
         "id": user.id, "display_name": user.display_name, "email": user.email,
         "eligible": await eligible(db, user), "age_check_available": assurance_provider() is not None,
+        "online_age_check_available": settings.public_conversations,
         "conversations_enabled": settings.enable_conversations,
         "matchmaking_enabled": settings.enable_matchmaking,
         "private_rooms_enabled": settings.enable_private_rooms,
