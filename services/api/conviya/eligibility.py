@@ -41,7 +41,7 @@ def assurance_provider() -> AgeAssurance | None:
 async def eligible(db: Db, user: User):
     row = await db.get(Eligibility, user.id)
     if settings.public_conversations:
-        return bool(user.status == "active" and user.email_verified_at and row and row.is_adult and row.provider == PROVIDER)
+        return bool(user.status == "active" and can_sign_in(user) and row and row.is_adult and row.provider == PROVIDER)
     provider = assurance_provider()
     return bool(can_sign_in(user) and user.status == "active" and provider and
                 row and row.is_adult and row.provider == provider.name)

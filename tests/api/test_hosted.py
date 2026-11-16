@@ -11,7 +11,7 @@ import httpx
 from pydantic import ValidationError
 
 from conviya.config import Settings
-from conviya import age_verification, conversations, identity, main
+from conviya import age_verification, conversations, eligibility, identity, main
 from fastapi import HTTPException
 
 
@@ -64,6 +64,42 @@ def test_hosted_gateway_blocks_direct_api_traffic(monkeypatch):
             assert response.status_code == 403
 
     asyncio.run(exercise())
+
+
+def test_temporary_production_signup_and_login_skip_email_but_require_adult_proof(monkeypatch):
+    settings = hosted_settings(production_skip_email_verification=True)
+    for module in (main, identity, eligibility):
+        monkeypatch.setattr(module, "settings", settings)
+    send = AsyncMock()
+    monkeypatch.setattr(identity, "issue_account_link", send)
+    monkeypatch.setattr(identity, "auth_limits", AsyncMock())
+    password = "test-only-password"
+    user = SimpleNamespace(id=uuid4(), status="active", email_verified_at=None,
+                           password_hash=identity.hasher.hash(password))
+    db = MagicMock(scalar=AsyncMock(return_value=user), commit=AsyncMock(), get=AsyncMock(return_value=None))
+
+    async def test_database():
+        yield db
+
+    async def exercise():
+        transport = httpx.ASGITransport(app=main.app)
+        headers = {"x-trust-meet-proxy-key": settings.web_proxy_secret, "Origin": settings.web_origin}
+        async with httpx.AsyncClient(transport=transport, base_url=settings.web_origin, headers=headers) as client:
+            assert (await client.get("/auth/options")).json() == {"email_verification_required": False}
+            credentials = {"email": "tester@example.com", "password": password}
+            assert (await client.post("/auth/register", json={**credentials, "display_name": "Tester"})).status_code == 202
+            assert (await client.post("/auth/login", json=credentials)).status_code == 200
+            assert not await eligibility.eligible(db, user)
+            db.get.return_value = SimpleNamespace(is_adult=True, provider=age_verification.PROVIDER)
+            assert await eligibility.eligible(db, user)
+            monkeypatch.setattr(identity, "settings", hosted_settings())
+            assert (await client.post("/auth/login", json=credentials)).status_code == 403
+            assert not await eligibility.eligible(db, user)
+
+    monkeypatch.setitem(main.app.dependency_overrides, identity.database, test_database)
+    asyncio.run(exercise())
+    send.assert_not_awaited()
+    assert user.email_verified_at is None
 
 
 def test_resend_email_uses_https_with_legacy_smtp_key(monkeypatch):

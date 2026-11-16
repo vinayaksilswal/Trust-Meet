@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     enable_matchmaking: bool = False
     enable_private_rooms: bool = False
     lan_skip_email_verification: bool = False
+    production_skip_email_verification: bool = False
     public_conversations: bool = False
     veriff_api_url: str = "https://stationapi.veriff.com"
     veriff_api_key: str = ""
@@ -43,10 +44,16 @@ class Settings(BaseSettings):
             return self.smtp_password
         return ""
 
+    @property
+    def email_verification_required(self) -> bool:
+        return not (self.lan_skip_email_verification or self.production_skip_email_verification)
+
     @model_validator(mode="after")
     def enforce_launch_gates(self):
         if self.lan_skip_email_verification and self.environment != "lan":
             raise ValueError("Skipping email verification is available only in LAN testing.")
+        if self.production_skip_email_verification and self.environment != "production":
+            raise ValueError("The production email verification switch is available only in production.")
         if self.public_conversations and self.environment != "production":
             raise ValueError("Public conversations require production settings.")
         origin = urlsplit(self.web_origin)

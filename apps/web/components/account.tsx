@@ -70,7 +70,7 @@ function AccountForm({ action }: { action: Exclude<AccountAction, "settings"> })
     {action === "register" && <p>Trust Meet is for adults aged 18 and older.</p>}
     {action === "verify" && !completed && <p>Confirm that this email address belongs to you.</p>}
     {completed ? <Notice>{mutation.data.message}</Notice> :
-      action === "resend" && verificationPaused ? <Notice>Email confirmation is paused for LAN testing. You can sign in now.</Notice> :
+      action === "resend" && verificationPaused ? <Notice>You can sign in now. Email verification is paused for testing.</Notice> :
       <form className="form-stack" onSubmit={submit}>
       {action === "register" && <Field label="Display name" name="display_name" autoComplete="nickname" minLength={2} maxLength={60} required />}
       {requireEmail && <Field label="Email address" name="email" type="email" autoComplete="email" maxLength={254} required />}

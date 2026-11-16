@@ -128,12 +128,12 @@ CurrentUser = Annotated[User, Depends(current_user)]
 
 
 def can_sign_in(user: User):
-    return user.email_verified_at is not None or settings.lan_skip_email_verification
+    return user.email_verified_at is not None or not settings.email_verification_required
 
 
 @router.get("/options")
 async def options():
-    return {"email_verification_required": not settings.lan_skip_email_verification}
+    return {"email_verification_required": settings.email_verification_required}
 
 
 @router.post("/register", status_code=202)
@@ -145,9 +145,9 @@ async def register(payload: Registration, request: Request, db: Db):
         email=payload.email.casefold(), display_name=payload.display_name, password_hash=password_hash
     )
     user = await db.scalar(statement.on_conflict_do_nothing(index_elements=[User.email]).returning(User))
-    if settings.lan_skip_email_verification:
+    if not settings.email_verification_required:
         await db.commit()
-        return {"message": "Email confirmation is paused for LAN testing. You can sign in now."}
+        return {"message": "You can sign in now. Email verification is paused for testing."}
     if user:
         await issue_account_link(db, user, "verify")
     return {"message": "Check your inbox for a verification link. Use Resend verification if it hasn’t arrived."}
@@ -155,8 +155,8 @@ async def register(payload: Registration, request: Request, db: Db):
 
 @router.post("/resend", status_code=202)
 async def resend(payload: Address, request: Request, db: Db):
-    if settings.lan_skip_email_verification:
-        return {"message": "Email confirmation is paused for LAN testing. You can sign in now."}
+    if not settings.email_verification_required:
+        return {"message": "You can sign in now. Email verification is paused for testing."}
     await auth_limits(request, payload.email, "resend")
     user = await find_user(db, payload.email)
     if user and user.status == "active" and user.email_verified_at is None:
