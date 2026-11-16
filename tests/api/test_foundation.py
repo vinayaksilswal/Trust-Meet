@@ -78,6 +78,12 @@ def test_lan_requires_private_https_and_same_origin_signaling():
         with pytest.raises(ValidationError, match="LAN testing requires"):
             Settings(**(lan | changes))
 
+
+@pytest.mark.parametrize("environment", ["development", "test", "production"])
+def test_email_bypass_requires_lan_environment(environment):
+    with pytest.raises(ValidationError, match="available only in LAN testing"):
+        Settings(environment=environment, lan_skip_email_verification=True)
+
 def test_readiness_and_csrf(client):
     assert client.get("ready").json() == {"status": "ready"}
     response = client.post("auth/logout", headers={"Origin": "https://wrong.example"}, json={})

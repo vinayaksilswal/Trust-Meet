@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { credentials, message, registration, token } from "@conviya/contracts";
 import { Field, Notice } from "@conviya/ui";
 import Link from "next/link";
@@ -24,6 +24,11 @@ export function Account({ action }: { action: AccountAction }) {
 function AccountForm({ action }: { action: Exclude<AccountAction, "settings"> }) {
   const router = useRouter();
   const client = useQueryClient();
+  const verification = useQuery({
+    queryKey: ["auth-options"],
+    queryFn: ({ signal }) => api("/auth/options", z.object({ email_verification_required: z.boolean() }), undefined, signal),
+  });
+  const verificationPaused = verification.data?.email_verification_required === false;
   const mutation = useMutation({
     mutationFn: async (fields: Record<string, FormDataEntryValue>) => {
       switch (action) {
@@ -61,7 +66,9 @@ function AccountForm({ action }: { action: Exclude<AccountAction, "settings"> })
     <h1>{titles[action]}</h1>
     {action === "register" && <p>Trust Meet is for adults aged 18 and older.</p>}
     {action === "verify" && !completed && <p>Confirm that this email address belongs to you.</p>}
-    {completed ? <Notice>{mutation.data.message}</Notice> : <form className="form-stack" onSubmit={submit}>
+    {completed ? <Notice>{mutation.data.message}</Notice> :
+      action === "resend" && verificationPaused ? <Notice>Email confirmation is paused for LAN testing. You can sign in now.</Notice> :
+      <form className="form-stack" onSubmit={submit}>
       {action === "register" && <Field label="Display name" name="display_name" autoComplete="nickname" minLength={2} maxLength={60} required />}
       {requireEmail && <Field label="Email address" name="email" type="email" autoComplete="email" maxLength={254} required />}
       {requirePassword && <Field label="Password" name="password" type="password" autoComplete={action === "login" ? "current-password" : "new-password"} minLength={12} maxLength={128} required />}
@@ -70,8 +77,8 @@ function AccountForm({ action }: { action: Exclude<AccountAction, "settings"> })
     </form>}
     <div className="form-links">
       {action !== "login" && <Link href="/account/login">Back to sign in</Link>}
-      {action === "login" && <><Link href="/account/register">Create an account</Link><Link href="/account/recover">Forgot password?</Link><Link href="/account/resend">Resend verification</Link></>}
-      {action === "register" && <Link href="/account/resend">Resend verification</Link>}
+      {action === "login" && <><Link href="/account/register">Create an account</Link><Link href="/account/recover">Forgot password?</Link></>}
+      {!verificationPaused && (action === "login" || action === "register") && <Link href="/account/resend">Resend verification</Link>}
     </div>
   </div>;
 }

@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     enable_conversations: bool = False
     enable_matchmaking: bool = False
     enable_private_rooms: bool = False
+    lan_skip_email_verification: bool = False
     livekit_api_url: str = "http://127.0.0.1:7880"
     livekit_ws_url: str = "ws://localhost:7880"
     livekit_api_key: str = "devkey"
@@ -30,6 +31,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def enforce_launch_gates(self):
+        if self.lan_skip_email_verification and self.environment != "lan":
+            raise ValueError("Skipping email verification is available only in LAN testing.")
         origin = urlsplit(self.web_origin)
         if origin.path or origin.query or origin.fragment or not origin.hostname or origin.username:
             raise ValueError("WEB_ORIGIN must be an origin without a trailing slash.")

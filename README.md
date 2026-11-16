@@ -24,6 +24,8 @@ The Windows LAN launcher uses the native development services, the optimized Nex
 
 The gateway serves TCP 3443 and LiveKit receives media on UDP 7892. Use the same Wi-Fi network and allow those ports within the local subnet if the host firewall requires it. The API, database, Redis and Mailpit use loopback, and the LAN launcher keeps production gates in place. Run `./scripts/Stop-TrustMeetLan.ps1` to stop the LAN test processes.
 
+While test email is unavailable, add `-SkipEmailVerification` to the LAN launch command. Testers can sign in with their existing passwords and complete the age check. Restart without the switch to require email confirmation again.
+
 ## Run with native dependencies
 
 Use Python 3.11 and Node.js 24 along with PostgreSQL, Redis, a loopback SMTP inbox such as Mailpit, and the LiveKit development server. Start the dependencies, copy `.env.example` to `.env`, and set the API connection strings and ports. Keep `WEB_ORIGIN=http://localhost:3000`.

@@ -12,21 +12,28 @@ async function provision(page: Page, request: APIRequestContext, name: string) {
   await page.getByLabel("Email address").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Create an account" }).click();
-  await expect(page.getByRole("status")).toHaveText(/Check your inbox/);
-  let verificationLink = "";
-  await expect.poll(async () => {
-    const response = await request.get(mailpit + "/api/v1/search", { params: { query: "to:" + email } });
-    const result = await response.json();
-    const preview = result.messages?.[0];
-    if (preview) {
-      const detail = await request.get(mailpit + "/api/v1/message/" + preview.ID);
-      verificationLink = (await detail.json()).Text.match(/https?:\/\/[^\s]+\/account\/verify#[\w-]+/)?.[0] ?? "";
-    }
-    return verificationLink;
-  }).toContain("/account/verify#");
-  await page.goto(verificationLink);
-  await page.getByRole("button", { name: "Verify your email" }).click();
-  await expect(page.getByRole("status")).toHaveText(/Email verified/);
+  const options = await request.get(new URL("/api/auth/options", page.url()).href);
+  const verificationRequired = (await options.json()).email_verification_required;
+  if (verificationRequired) {
+    await expect(page.getByRole("status")).toHaveText(/Check your inbox/);
+    let verificationLink = "";
+    await expect.poll(async () => {
+      const response = await request.get(mailpit + "/api/v1/search", { params: { query: "to:" + email } });
+      const result = await response.json();
+      const preview = result.messages?.[0];
+      if (preview) {
+        const detail = await request.get(mailpit + "/api/v1/message/" + preview.ID);
+        verificationLink = (await detail.json()).Text.match(/https?:\/\/[^\s]+\/account\/verify#[\w-]+/)?.[0] ?? "";
+      }
+      return verificationLink;
+    }).toContain("/account/verify#");
+    await page.goto(verificationLink);
+    await page.getByRole("button", { name: "Verify your email" }).click();
+    await expect(page.getByRole("status")).toHaveText(/Email verified/);
+  } else {
+    await expect(page.getByRole("status")).toHaveText(/You can sign in now/);
+    await expect(page.getByRole("link", { name: "Resend verification" })).toHaveCount(0);
+  }
   await page.getByRole("link", { name: "Back to sign in" }).click();
   await page.getByLabel("Email address").fill(email);
   await page.getByLabel("Password").fill(password);
@@ -61,7 +68,7 @@ test("discovery is accessible and fits a mobile viewport", async ({ page }) => {
 });
 
 for (const mode of ["Text", "Voice", "Video"] as const) {
-  test(`two verified accounts exchange ${mode.toLowerCase()} through LiveKit`, async ({ browser, request }) => {
+  test(`two signed-in accounts exchange ${mode.toLowerCase()} through LiveKit`, async ({ browser, request }) => {
     const { first, second, alice, amit } = await twoAccounts(browser, request);
     try {
       await alice.goto("/connect");
