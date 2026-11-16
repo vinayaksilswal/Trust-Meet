@@ -48,6 +48,16 @@ class Eligibility(Base):
     checked_at: Mapped[datetime] = mapped_column(server_default=sa.func.now())
 
 
+class BetaAdmission(Base):
+    __tablename__ = "beta_admissions"
+
+    email: Mapped[str] = mapped_column(sa.String(254), primary_key=True)
+    reviewed_by: Mapped[str] = mapped_column(sa.String(100))
+    reviewed_at: Mapped[datetime] = mapped_column(server_default=sa.func.now())
+    suspended_by: Mapped[str | None] = mapped_column(sa.String(100))
+    suspended_at: Mapped[datetime | None]
+
+
 class Conversation(Base):
     __tablename__ = "conversations"
     __table_args__ = (
@@ -64,6 +74,7 @@ class Conversation(Base):
     started_at: Mapped[datetime | None]
     ended_at: Mapped[datetime | None]
     media_closed_at: Mapped[datetime | None]
+    media_retry_at: Mapped[datetime | None]
 
 
 class Participant(Base):
@@ -76,6 +87,7 @@ class Participant(Base):
     conversation_id: Mapped[UUID] = mapped_column(sa.ForeignKey("conversations.id", ondelete="CASCADE"), primary_key=True)
     user_id: Mapped[UUID] = mapped_column(sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     consented_at: Mapped[datetime | None]
+    media_granted_at: Mapped[datetime | None]
     released_at: Mapped[datetime | None]
 
 

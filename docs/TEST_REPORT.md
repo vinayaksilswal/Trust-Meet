@@ -22,3 +22,7 @@ A Docker engine was unavailable on this machine. Container startup, GitHub Actio
 The Windows LAN launch served HTTPS and same-origin LiveKit signaling at the host's private Wi-Fi address. Nine API tests and six Chromium tests passed through the LAN address, including secure cookies, two-user text, audio and video, refresh recovery and a three-user private video room. The automated clients ran on the host with synthetic media. A second physical device still needs a manual Wi-Fi and camera test.
 
 The Random Connect redesign and queue fix passed all eight Chromium tests through the LAN gateway. The tests cover stale-search replacement after a tab switch and reload, desktop tile placement, mobile accessibility checks, and local camera preview with track release. LiveKit text, audio, two-user video, and the private video room passed on the same build.
+
+## Hosted beta preparation
+
+The Vercel-mode Next.js build, migration 0004 and the local schema check passed. Hosted configuration and authorization checks passed, along with the same-origin proxy test for session headers, backend authentication, route restrictions and body limits. The Cloud revocation sequencing test uses a simulated provider. Run the deployment guide's live smoke checks with the hosted database, email sender, LiveKit Cloud and two real devices before enabling beta traffic.

@@ -7,7 +7,13 @@ const config: NextConfig = {
   transpilePackages: ["@conviya/ui", "@conviya/contracts"],
   async rewrites() {
     const api = process.env.CONVIYA_API_URL ?? "http://127.0.0.1:8000";
-    return [{ source: "/api/:path*", destination: api + "/:path*" }];
+    return {
+      beforeFiles: process.env.VERCEL === "1" || process.env.TRUST_MEET_WEB_PROXY_SECRET
+        ? []
+        : [{ source: "/api/:path*", destination: api + "/:path*" }],
+      afterFiles: [],
+      fallback: [],
+    };
   },
   async headers() {
     return [{

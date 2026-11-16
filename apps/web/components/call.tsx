@@ -170,7 +170,7 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false }: Prop
 
   async function submitReport(category: string) {
     try {
-      await api("/conversations/" + call.id + "/report", message, { category });
+      await api(callPath + "/report", message, { category });
       setReportSaved(true);
       setReportOpen(false);
     } catch (cause) { setError(errorMessage(cause)); }
@@ -223,7 +223,7 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false }: Prop
   const safetyControls = <>
     <div className="action-row random-safety-actions">
       <button className="button button-outline" onClick={() => setReportOpen(!reportOpen)} aria-expanded={reportOpen}><Flag size={17} /> Report</button>
-      <button className="button button-outline" onClick={() => setBlockOpen(!blockOpen)} aria-expanded={blockOpen}>Block participant</button>
+      {!group && <button className="button button-outline" onClick={() => setBlockOpen(!blockOpen)} aria-expanded={blockOpen}>Block participant</button>}
     </div>
     {reportOpen && <form className="form-stack" onSubmit={event => {
       event.preventDefault();
@@ -245,6 +245,7 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false }: Prop
     <div ref={audio} data-testid="remote-audio" />
     {mediaControls}
     {chatPanel}
+    {safetyControls}
   </div>;
 
   return <>

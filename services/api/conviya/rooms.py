@@ -8,13 +8,14 @@ from fastapi import APIRouter, HTTPException
 from livekit import api
 from pydantic import AwareDatetime, BaseModel, Field, StringConstraints
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 
 from .config import settings
-from .conversations import EligibleUser, Mode, blocked, delete_room, issue_media_grant, livekit
+from .conversations import EligibleUser, Mode, ReportInput, blocked, close_media, issue_media_grant, livekit, revoke_participant
 from .eligibility import eligible
 from .identity import Db, Token, hash_slots, hasher
 from .models import User
-from .rooms_models import PrivateRoom, RoomInvitation, RoomMember
+from .rooms_models import PrivateRoom, RoomInvitation, RoomMember, RoomReport
 from .runtime import digest, new_token, now, throttle
 
 
@@ -231,18 +232,11 @@ async def media(id: UUID, db: Db, user: EligibleUser):
     host = await db.get(User, room.owner_id)
     if not host or not await eligible(db, host) or await blocked(db, user.id, room.owner_id):
         raise HTTPException(403, "The room is unavailable.")
-    return issue_media_grant(media_room(id), str(user.id), room.mode, room.ends_at, user.display_name)
-
-
-async def disconnect(id: UUID, member_id: UUID):
-    try:
-        async with livekit() as client:
-            await client.room.remove_participant(api.RoomParticipantIdentity(room=media_room(id), identity=str(member_id)))
-    except api.TwirpError as err:
-        if err.code != "not_found":
-            raise HTTPException(503, "Media disconnection is temporarily unavailable.") from err
-    except (TimeoutError, OSError) as err:
-        raise HTTPException(503, "Media disconnection is temporarily unavailable.") from err
+    grant = issue_media_grant(media_room(id), str(user.id), room.mode, room.ends_at, user.display_name)
+    if member.media_granted_at is None:
+        member.media_granted_at = now()
+        await db.commit()
+    return grant
 
 
 @router.post("/{id}/members/{member_id}/remove", status_code=204)
@@ -254,8 +248,13 @@ async def remove(id: UUID, member_id: UUID, db: Db, user: EligibleUser):
     if not member or member_id == user.id:
         raise HTTPException(404, "Participant not found.")
     member.state, member.updated_at = "removed", now()
+    member.media_retry_at = now() + timedelta(seconds=5)
     await db.commit()
-    await disconnect(id, member_id)
+    if member.media_granted_at is None or await revoke_participant(media_room(id), member_id):
+        member.media_revoked_at = now()
+        await db.commit()
+    else:
+        raise HTTPException(503, "Room access was removed. Media disconnection is being retried.")
 
 
 @router.post("/{id}/members/{member_id}/mute", status_code=204)
@@ -288,4 +287,24 @@ async def close(id: UUID, db: Db, user: EligibleUser):
     room, _ = await read_room(db, id, user, lock=True, host=True)
     room.closed_at = room.closed_at or now()
     await db.commit()
-    await delete_room(media_room(id))
+    if not settings.hosted_invite_beta:
+        await close_media(media_room(id), [])
+
+
+async def room_participants(db: Db, room_id: UUID):
+    return list(await db.scalars(select(RoomMember.user_id).where(
+        RoomMember.room_id == room_id, RoomMember.media_granted_at.is_not(None),
+    )))
+
+
+@router.post("/{id}/report", status_code=202)
+async def report_room(id: UUID, payload: ReportInput, db: Db, user: EligibleUser):
+    require_rooms()
+    await throttle("room-report", str(user.id), 12, 3600)
+    _, member = await read_room(db, id, user)
+    if member.state not in {"approved", "removed"}:
+        raise HTTPException(404, "Room not found.")
+    await db.execute(insert(RoomReport).values(room_id=id, reporter_id=user.id, category=payload.category)
+                     .on_conflict_do_nothing())
+    await db.commit()
+    return {"message": "Your report was saved."}

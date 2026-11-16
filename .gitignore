@@ -1,5 +1,9 @@
 .env
 .env.local
+.env.hosted
+.env.production
+.env.production.local
+.vercel/
 .venv/
 .local/
 node_modules/

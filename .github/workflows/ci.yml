@@ -22,6 +22,7 @@ jobs:
           python-version: '3.11'
       - run: npm ci
       - run: npm run typecheck
+      - run: node --test tests/web/hosted-proxy.test.mjs
       - run: npm audit --audit-level=high
       - run: npx playwright install --with-deps chromium
       - run: pip install -r services/api/requirements.txt -r services/api/requirements-dev.txt

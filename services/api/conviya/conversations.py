@@ -1,5 +1,7 @@
+import asyncio
 from datetime import timedelta
 import logging
+from math import ceil
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -121,10 +123,6 @@ def livekit():
     )
 
 
-async def delete_media(call_id: UUID):
-    return await delete_room(room_name(call_id))
-
-
 async def delete_room(name: str):
     try:
         async with livekit() as client:
@@ -137,6 +135,39 @@ async def delete_room(name: str):
     except (TimeoutError, OSError):
         logger.warning("LiveKit room cleanup unavailable")
     return False
+
+
+async def revoke_participant(name: str, user_id: UUID):
+    try:
+        async with livekit() as client:
+            await client.room.remove_participant(api.RoomParticipantIdentity(
+                room=name, identity=str(user_id),
+                revoke_token_ts=ceil(now().timestamp()) + 3 if settings.hosted_invite_beta else 0,
+            ))
+        return True
+    except api.TwirpError as err:
+        if err.code == "not_found" and not settings.hosted_invite_beta:
+            return True
+        logger.warning("LiveKit participant removal failed (%s)", err.code)
+    except (TimeoutError, OSError):
+        logger.warning("LiveKit participant removal unavailable")
+    return False
+
+
+async def close_media(name: str, participants: list[UUID]):
+    if not settings.hosted_invite_beta:
+        return await delete_room(name)
+    if not participants:
+        return True
+    revoked = await asyncio.gather(*(revoke_participant(name, user) for user in participants))
+    return all(revoked) and await delete_room(name)
+
+
+async def close_call_media(db: Db, call_id: UUID):
+    users = list(await db.scalars(select(Participant.user_id).where(
+        Participant.conversation_id == call_id, Participant.media_granted_at.is_not(None)
+    )))
+    return await close_media(room_name(call_id), users)
 
 
 @router.get("/current")
@@ -226,7 +257,12 @@ async def media_token(call_id: UUID, user: EligibleUser, db: Db):
         raise HTTPException(403, "This conversation is unavailable.")
     if not await eligible(db, one) or not await eligible(db, two):
         raise HTTPException(403, "This conversation is unavailable.")
-    return issue_media_grant(room_name(call.id), str(user.id), call.mode, call.expires_at)
+    grant = issue_media_grant(room_name(call.id), str(user.id), call.mode, call.expires_at)
+    member = first if first.user_id == user.id else second
+    if member.media_granted_at is None:
+        member.media_granted_at = now()
+        await db.commit()
+    return grant
 
 
 def issue_media_grant(name: str, user: str, mode: Mode, expires_at, display_name: str | None = None):

@@ -27,6 +27,7 @@ class PrivateRoom(Base):
     ends_at: Mapped[datetime] = mapped_column(index=True)
     closed_at: Mapped[datetime | None]
     media_closed_at: Mapped[datetime | None]
+    media_retry_at: Mapped[datetime | None]
 
 
 class RoomInvitation(Base):
@@ -47,3 +48,15 @@ class RoomMember(Base):
     user_id: Mapped[UUID] = mapped_column(sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True)
     state: Mapped[str] = mapped_column(sa.String(8))
     updated_at: Mapped[datetime] = mapped_column(server_default=sa.func.now())
+    media_granted_at: Mapped[datetime | None]
+    media_revoked_at: Mapped[datetime | None]
+    media_retry_at: Mapped[datetime | None]
+
+
+class RoomReport(Base):
+    __tablename__ = "room_reports"
+
+    room_id: Mapped[UUID] = mapped_column(sa.ForeignKey("private_rooms.id"), primary_key=True)
+    reporter_id: Mapped[UUID] = mapped_column(sa.ForeignKey("users.id"), primary_key=True)
+    category: Mapped[str] = mapped_column(sa.String(24))
+    created_at: Mapped[datetime] = mapped_column(server_default=sa.func.now(), index=True)

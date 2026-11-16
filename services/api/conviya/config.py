@@ -1,13 +1,13 @@
 from ipaddress import IPv4Address, IPv4Network
 from typing import Literal
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", hide_input_in_errors=True)
 
     environment: Literal["development", "test", "lan", "production"] = "development"
     web_origin: str = "http://localhost:3000"
@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     enable_matchmaking: bool = False
     enable_private_rooms: bool = False
     lan_skip_email_verification: bool = False
+    hosted_invite_beta: bool = False
+    web_proxy_secret: str = ""
     livekit_api_url: str = "http://127.0.0.1:7880"
     livekit_ws_url: str = "ws://localhost:7880"
     livekit_api_key: str = "devkey"
@@ -33,6 +35,8 @@ class Settings(BaseSettings):
     def enforce_launch_gates(self):
         if self.lan_skip_email_verification and self.environment != "lan":
             raise ValueError("Skipping email verification is available only in LAN testing.")
+        if self.hosted_invite_beta and self.environment != "production":
+            raise ValueError("The hosted beta requires production settings.")
         origin = urlsplit(self.web_origin)
         if origin.path or origin.query or origin.fragment or not origin.hostname or origin.username:
             raise ValueError("WEB_ORIGIN must be an origin without a trailing slash.")
@@ -41,8 +45,26 @@ class Settings(BaseSettings):
         if self.environment == "production":
             if origin.scheme != "https" or not self.smtp_starttls or not self.smtp_username or not self.smtp_password:
                 raise ValueError("Production requires an HTTPS web origin and authenticated TLS mail.")
-            if self.enable_dev_age_assurance or self.enable_conversations:
+            if self.enable_dev_age_assurance or (self.enable_conversations and not self.hosted_invite_beta):
                 raise ValueError("Production conversations require approved age assurance and media enforcement.")
+            if len(self.web_proxy_secret) < 32:
+                raise ValueError("Production requires a dedicated web proxy secret.")
+            if self.hosted_invite_beta:
+                ws = urlsplit(self.livekit_ws_url)
+                if (ws.scheme != "wss" or not ws.hostname or not ws.hostname.endswith(".livekit.cloud")
+                        or ws.netloc != ws.hostname or ws.path or ws.query or ws.fragment
+                        or self.livekit_api_url != f"https://{ws.hostname}"
+                        or len(self.livekit_api_secret) < 32 or self.livekit_api_key in {"", "devkey"}):
+                    raise ValueError("The hosted beta requires a dedicated LiveKit Cloud project.")
+                db = urlsplit(self.database_url)
+                if db.scheme != "postgresql+psycopg" or parse_qs(db.query).get("sslmode") != ["verify-full"]:
+                    raise ValueError("The hosted beta requires verified PostgreSQL TLS.")
+                redis = urlsplit(self.redis_url)
+                redis_options = parse_qs(redis.query)
+                if (redis.scheme != "rediss" or
+                        redis_options.get("ssl_cert_reqs", ["required"]) != ["required"] or
+                        redis_options.get("ssl_check_hostname", ["true"]) != ["true"]):
+                    raise ValueError("The hosted beta requires verified Redis TLS.")
         elif self.environment == "lan":
             private_networks = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
             try:

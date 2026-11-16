@@ -1,5 +1,7 @@
 # Trust Meet
 
+For Vercel, follow the [hosted beta deployment guide](docs/DEPLOYMENT.md). It covers the frontend, the persistent API service, and the checks to run before enabling conversations.
+
 Trust Meet is an India-first platform for adult conversation. This local development release includes verified accounts, an age eligibility interface, Random Connect with Redis-backed matchmaking, and private rooms. LiveKit carries text, voice and video.
 
 ## Run locally with Docker

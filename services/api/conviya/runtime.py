@@ -12,7 +12,7 @@ from .config import settings
 
 engine = create_async_engine(settings.database_url, pool_pre_ping=True)
 Sessions = async_sessionmaker(engine, expire_on_commit=False)
-cache = Redis.from_url(settings.redis_url, decode_responses=True)
+cache = Redis.from_url(settings.redis_url, decode_responses=True, socket_connect_timeout=3, socket_timeout=3)
 RATE_LIMIT = """
 local count = redis.call('INCR', KEYS[1])
 if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
@@ -47,4 +47,6 @@ async def throttle(scope: str, key: str, limit: int, seconds: int):
 
 
 def client_key(request: Request):
+    if settings.environment == "production":
+        return getattr(request.state, "trusted_client_ip", "unknown")
     return request.client.host if request.client else "unknown"

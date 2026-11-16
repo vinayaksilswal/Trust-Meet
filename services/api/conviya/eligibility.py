@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert
 
 from .config import settings
-from .identity import CurrentUser, Db, can_sign_in
+from .identity import CurrentUser, Db, admission_allows, can_sign_in
 from .models import Eligibility, User
 from .runtime import now, throttle
 
@@ -38,6 +38,8 @@ def assurance_provider() -> AgeAssurance | None:
 
 
 async def eligible(db: Db, user: User):
+    if settings.hosted_invite_beta:
+        return bool(user.status == "active" and user.email_verified_at and await admission_allows(db, user.email))
     row = await db.get(Eligibility, user.id)
     provider = assurance_provider()
     return bool(can_sign_in(user) and user.status == "active" and provider and

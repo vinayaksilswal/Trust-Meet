@@ -112,6 +112,7 @@ test("the Random Connect studio supports a local camera preview and mobile layou
   const local = page.getByRole("region", { name: "You", exact: true });
   const remote = page.getByRole("region", { name: "Your match", exact: true });
   const chat = page.getByRole("complementary", { name: "Conversation chat" });
+  await Promise.all([expect(remote).toBeVisible(), expect(local).toBeVisible(), expect(chat).toBeVisible()]);
   const [remoteBox, localBox, chatBox] = await Promise.all([remote.boundingBox(), local.boundingBox(), chat.boundingBox()]);
   expect(remoteBox!.x).toBeLessThan(localBox!.x);
   expect(localBox!.x).toBeLessThan(chatBox!.x);
@@ -237,6 +238,10 @@ test("private room hosts can approve, mute, and remove guests in a group LiveKit
     await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBeGreaterThan(0);
     await alice.getByRole("button", { name: "Mute Amit" }).click();
     await expect(amit.getByRole("button", { name: "Enable microphone" })).toBeEnabled();
+    await guest.getByRole("button", { name: "Report", exact: true }).click();
+    await guest.getByLabel("Report reason").selectOption("other");
+    await guest.getByRole("button", { name: "Submit report" }).click();
+    await expect(guest.getByText("Your report was saved.")).toBeVisible();
     await alice.getByRole("button", { name: "Remove Amit" }).click();
     await expect(amit.getByText("You no longer have access to this room.")).toBeVisible();
     await alice.getByRole("button", { name: "Close room", exact: true }).click();

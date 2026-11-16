@@ -106,7 +106,7 @@ function Settings() {
     <h1>Your account</h1>
     <p>{account.data.display_name} · {account.data.email}</p>
     <h2>Age eligibility</h2>
-    {account.data.eligible ? <Notice>Adult eligibility confirmed for local testing.</Notice> :
+    {account.data.eligible ? <Notice>Adult eligibility confirmed.</Notice> :
       age.data?.eligible === false ? <Notice error>This account is ineligible for conversations.</Notice> :
       account.data.age_check_available ? <form className="form-stack" onSubmit={event => {
         event.preventDefault();

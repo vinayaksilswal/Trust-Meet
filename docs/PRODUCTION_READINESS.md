@@ -1,6 +1,6 @@
 # Production readiness
 
-The current release runs locally. Production configuration rejects development age assurance and conversation enablement. Deployment has not been authorized or performed.
+The hosted configuration supports an invite-only adult beta on Vercel, a persistent API host, and LiveKit Cloud. Conversation flags default to off. The hosted stack and provider enforcement have not been tested against live production credentials.
 
 ## Implemented for local development
 
@@ -13,9 +13,9 @@ The current release runs locally. Production configuration rejects development a
 
 ## Partial
 
-- TrustOS stores categorized reports and blocks. Staffed case handling, audit trails, suspensions, appeals and escalation are pending.
+- TrustOS stores categorized conversation and room reports and blocks. The hosted operator CLI records admission and suspension and lists reports. Staffed case handling, appeal tooling and escalation remain open.
 - Conversation timestamps support duration tracking. Billing-grade usage metering, live occupancy and cost controls are pending.
-- Production identity assurance and LiveKit Cloud integration require approved provider configuration and separate end-to-end verification. Self-hosted development tokens can replay within their validity window.
+- Hosted beta eligibility uses an operator-reviewed adult roster and mandatory email verification. Provider configuration and hosted revocation checks remain required. Self-hosted development tokens can replay within their validity window.
 - Discovery includes gated entries for business, wellness, fitness and astrology. Expert onboarding, appointments, Razorpay test settlement and public access to these modules are pending.
 
 ## Blocked pending authorization and operational reviews

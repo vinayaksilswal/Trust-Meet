@@ -1,5 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager, suppress
+from hmac import compare_digest
+from ipaddress import ip_address
 import logging
 
 from fastapi import FastAPI, Request
@@ -33,6 +35,14 @@ app = FastAPI(title="Trust Meet API", version="0.1.0", lifespan=lifespan, docs_u
 
 @app.middleware("http")
 async def protect_browser_requests(request: Request, call_next):
+    if settings.environment == "production" and request.url.path != "/health":
+        supplied = request.headers.get("x-trust-meet-proxy-key", "")
+        if not compare_digest(supplied.encode(), settings.web_proxy_secret.encode()):
+            return JSONResponse({"detail": "Endpoint not found."}, 404, headers={"Cache-Control": "no-store"})
+        try:
+            request.state.trusted_client_ip = str(ip_address(request.headers.get("x-trust-meet-client-ip", "")))
+        except ValueError:
+            pass
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         if request.headers.get("origin") != settings.web_origin:
             return JSONResponse({"detail": "Request origin is not allowed."}, 403)
