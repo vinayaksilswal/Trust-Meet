@@ -20,3 +20,5 @@ A Docker engine was unavailable on this machine. Container startup, GitHub Actio
 ## Trust Meet LAN test
 
 The Windows LAN launch served HTTPS and same-origin LiveKit signaling at the host's private Wi-Fi address. Nine API tests and six Chromium tests passed through the LAN address, including secure cookies, two-user text, audio and video, refresh recovery and a three-user private video room. The automated clients ran on the host with synthetic media. A second physical device still needs a manual Wi-Fi and camera test.
+
+The Random Connect redesign and queue fix passed all eight Chromium tests through the LAN gateway. The tests cover stale-search replacement after a tab switch and reload, desktop tile placement, mobile accessibility checks, and local camera preview with track release. LiveKit text, audio, two-user video, and the private video room passed on the same build.

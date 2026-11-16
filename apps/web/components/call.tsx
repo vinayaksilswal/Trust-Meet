@@ -10,6 +10,7 @@ import { Flag, Mic, MicOff, PhoneOff, Video, VideoOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { api, errorMessage } from "@/lib/client";
+import { RandomStudio, RandomTile } from "./random-studio";
 
 const chatTopic = "conviya.chat";
 const chatMessage = z.string().trim().min(1).max(500);
@@ -175,16 +176,15 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false }: Prop
     } catch (cause) { setError(errorMessage(cause)); }
   }
 
-  return <div>
+  const callStatus = <>
     <div className="call-status"><h2>{call.partner ?? "Conversation"}</h2><span data-testid="call-clock">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")} remaining</span></div>
     <Notice>{connected ? (connectedPeer ? "Connected" : "Connected · Waiting for the other participant") :
       connection === ConnectionState.Disconnected ? "Disconnected" : "Connecting…"}</Notice>
     {error && <Notice error>{error}</Notice>}
     {reportSaved && <Notice>Your report was saved.</Notice>}
-    {call.mode === "video" && <div className={"video-stage" + (group ? " video-group" : "")} aria-label="Video stage">
-      <span>Camera is off</span><div className="remote" ref={remote} data-testid="remote-video" /><div className="local" ref={preview} data-testid="local-preview" />
-    </div>}
-    <div ref={audio} data-testid="remote-audio" />
+  </>;
+
+  const mediaControls = <>
     <div className="action-row">
       {call.mode !== "text" && <button className="button button-outline" disabled={!connected || busy || controlBusy} onClick={() => void toggle("mic")}>
         {mic ? <MicOff size={17} /> : <Mic size={17} />}{mic ? "Mute microphone" : "Enable microphone"}
@@ -206,19 +206,25 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false }: Prop
         }}><option value="" disabled>Choose an output</option>
           {speakers.map((speaker, index) => <option key={speaker.deviceId} value={speaker.deviceId}>{speaker.label || `Speaker ${index + 1}`}</option>)}</select>
       </label>}
+  </>;
+
+  const chatPanel = <>
     <h2>Messages</h2>
     <ul className="chat-log" aria-label="Conversation messages" aria-live="polite" ref={history}>
       {chat.length === 0 && <li>No messages yet.</li>}
       {chat.map((item, index) => <li key={index}><strong>{item.mine ? "You" : item.author || (group ? "Participant" : call.partner)}:</strong> {item.text}</li>)}
     </ul>
     <form className="chat-form" onSubmit={event => { event.preventDefault(); void send(); }}>
-      <Field label="Message" name="message" value={draft} maxLength={500} onChange={event => setDraft(event.target.value)} required />
+      <Field label="Message" name="message" value={draft} placeholder="Type a message…" maxLength={500} onChange={event => setDraft(event.target.value)} required />
       <button className="button button-primary" disabled={!connected || !connectedPeer || !draft.trim()}>Send</button>
     </form>
-    {!group && <div className="action-row">
+  </>;
+
+  const safetyControls = <>
+    <div className="action-row random-safety-actions">
       <button className="button button-outline" onClick={() => setReportOpen(!reportOpen)} aria-expanded={reportOpen}><Flag size={17} /> Report</button>
       <button className="button button-outline" onClick={() => setBlockOpen(!blockOpen)} aria-expanded={blockOpen}>Block participant</button>
-    </div>}
+    </div>
     {reportOpen && <form className="form-stack" onSubmit={event => {
       event.preventDefault();
       void submitReport(String(new FormData(event.currentTarget).get("category")));
@@ -229,5 +235,29 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false }: Prop
     {blockOpen && <div className="action-row"><p>Blocking ends this conversation and prevents future matches with this person.</p>
       <button className="button button-danger" disabled={busy} onClick={onBlock}>Confirm block</button>
     </div>}
+  </>;
+
+  if (group) return <div>
+    {callStatus}
+    {call.mode === "video" && <div className="video-stage video-group" aria-label="Video stage">
+      <span>Camera is off</span><div className="remote" ref={remote} data-testid="remote-video" /><div className="local" ref={preview} data-testid="local-preview" />
+    </div>}
+    <div ref={audio} data-testid="remote-audio" />
+    {mediaControls}
+    {chatPanel}
   </div>;
+
+  return <>
+    <RandomStudio controls={<>{callStatus}{mediaControls}{safetyControls}</>} side={
+      <div className="random-active-chat">{chatPanel}</div>
+    }>
+      <RandomTile name={call.partner ?? "Your match"} mode={call.mode}
+        hint={call.mode === "video" ? "Waiting for their camera" : connectedPeer ? "Your match is here" : "Waiting for your match"}
+        feed={call.mode === "video" ? remote : undefined} />
+      <RandomTile name="You" mode={call.mode} local
+        hint={call.mode === "video" ? "Your camera is off" : call.mode === "audio" ? (mic ? "Microphone on" : "Microphone off") : "Text conversation"}
+        feed={call.mode === "video" ? preview : undefined} />
+    </RandomStudio>
+    <div ref={audio} data-testid="remote-audio" />
+  </>;
 }

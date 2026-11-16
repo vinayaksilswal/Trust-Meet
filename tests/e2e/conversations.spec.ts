@@ -105,6 +105,28 @@ test("a fresh Random Connect search replaces a previous tab's lease", async ({ p
   await expect(secondTab.getByRole("button", { name: "Find a match" })).toBeVisible();
 });
 
+test("the Random Connect studio supports a local camera preview and mobile layout", async ({ page, request }) => {
+  await provision(page, request, "CameraTester");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/connect");
+  const local = page.getByRole("region", { name: "You", exact: true });
+  const remote = page.getByRole("region", { name: "Your match", exact: true });
+  const chat = page.getByRole("complementary", { name: "Conversation chat" });
+  const [remoteBox, localBox, chatBox] = await Promise.all([remote.boundingBox(), local.boundingBox(), chat.boundingBox()]);
+  expect(remoteBox!.x).toBeLessThan(localBox!.x);
+  expect(localBox!.x).toBeLessThan(chatBox!.x);
+  await local.getByRole("button", { name: "Preview camera" }).click();
+  const preview = local.locator("video");
+  await expect.poll(() => preview.evaluate(element => element.videoWidth)).toBeGreaterThan(0);
+  const camera = await preview.evaluateHandle(video => (video.srcObject as MediaStream).getVideoTracks()[0]);
+  await local.getByRole("button", { name: "Stop preview" }).click();
+  expect(await camera.evaluate(track => track.readyState)).toBe("ended");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("button", { name: "Find a match" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  expect((await new axe({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+});
+
 for (const mode of ["Text", "Voice", "Video"] as const) {
   test(`two signed-in accounts exchange ${mode.toLowerCase()} through LiveKit`, async ({ browser, request }) => {
     const { first, second, alice, amit } = await twoAccounts(browser, request);

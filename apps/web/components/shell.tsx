@@ -24,12 +24,13 @@ export function Brand() {
 
 export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
+  const studio = path === "/connect";
   const [open, setOpen] = useState(false);
   const account = useAccount();
   const profile = account.data;
   const links = [{ href: "/", name: "Discover", icon: Compass },
     ...modules.map(({slug, title, icon}) => ({ href: "/" + slug, name: title, icon }))];
-  return <div className="shell">
+  return <div className={studio ? "shell shell-studio" : "shell"}>
     <a className="skip-link" href="#main">Skip to content</a>
     <aside className={"sidebar" + (open ? " sidebar-open" : "")} id="navigation">
       <div className="sidebar-top"><Brand /><button className="icon-button mobile-only" aria-label="Close menu" onClick={() => setOpen(false)}><X size={21} /></button></div>
@@ -52,8 +53,10 @@ export function Shell({ children }: { children: ReactNode }) {
       <header className="topbar">
         <div className="topbar-left">
           <button className="icon-button mobile-only" aria-label="Open menu" aria-expanded={open} aria-controls="navigation" onClick={() => setOpen(!open)}><Menu size={22} /></button>
-          <span className="desktop-only">{path === "/" ? "Discovery" : (links.find(link => link.href === path)?.name ?? "Trust Meet")}</span>
-          <div className="mobile-only"><Brand /></div>
+          {studio ? <Brand /> : <>
+            <span className="desktop-only">{path === "/" ? "Discovery" : (links.find(link => link.href === path)?.name ?? "Trust Meet")}</span>
+            <div className="mobile-only"><Brand /></div>
+          </>}
         </div>
         <div className="topbar-right">
           <Link className="top-safety icon-button" aria-label="Safety Center" href="/safety"><ShieldCheck size={20} /></Link>

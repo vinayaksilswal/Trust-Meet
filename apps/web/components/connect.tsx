@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import { ApiError, api, errorMessage, useAccount } from "@/lib/client";
 import { Call } from "./call";
+import { PreviewTile, RandomStudio, RandomTile, WaitingChat } from "./random-studio";
 
 const modes = [
   { name: "Video", id: "video", icon: Video },
@@ -110,9 +111,8 @@ export function Connect() {
     },
   });
 
-  return <>
-    <div className="page-intro"><h1>Random Connect</h1><p>Choose how you want to start a one-to-one conversation.</p></div>
-    <section className="content-panel connect-panel">
+  const modeOnStage = active?.mode ?? searching?.mode ?? mode;
+  const controls = <>
       {account.isPending ? <Notice>Loading your account…</Notice> :
        account.isError ? <Notice error>{errorMessage(account.error)}<button onClick={() => account.refetch()}>Try again</button></Notice> :
        !profile ? <><h2>Sign in to connect</h2><p>Use a verified Trust Meet account to open or join a conversation.</p>
@@ -121,9 +121,6 @@ export function Connect() {
        !profile.conversations_enabled ? <Notice>Conversations are currently unavailable.</Notice> :
        current.isPending ? <Notice>Checking for an open conversation…</Notice> :
        current.isError && !active ? <Notice error>{errorMessage(current.error)}<button onClick={() => current.refetch()}>Try again</button></Notice> :
-       active?.state === "active" ? <Call key={active.id} call={active} busy={action.isPending}
-           onEnd={() => action.mutate("end")} onBlock={() => action.mutate("block")}
-           onNext={searching ? () => action.mutate("next") : undefined} /> :
        active?.state === "invited" ? <>
          <h2>{active.partner ? "Conversation invitation" : "Invitation link ready"}</h2>
          {active.partner ? <Notice>{active.consented ? "Waiting for the other participant to accept…" : active.partner + " is available for a " + active.mode + " conversation."}</Notice> :
@@ -132,7 +129,7 @@ export function Connect() {
            <button className="button button-outline" onClick={async () => {
              try { await navigator.clipboard.writeText(inviteUrl); setCopied(true); } catch { setCopied(false); }
            }}><Link2 size={16} />{copied ? "Link copied" : "Copy invitation"}</button></div>}
-         <div className="action-row">
+         <div className="action-row random-entry-actions">
            {active.partner && !active.consented && <button className="button button-primary" disabled={action.isPending} onClick={() => action.mutate("accept-match")}>Accept match</button>}
            {searching && <button className="button button-outline" disabled={action.isPending} onClick={() => action.mutate("next")}>Skip and find next</button>}
            <button className="button button-danger" disabled={action.isPending} onClick={() => action.mutate("end")}>{active.partner ? "Decline match" : "Cancel invitation"}</button>
@@ -143,21 +140,23 @@ export function Connect() {
          {queue.isError && <Notice error>{errorMessage(queue.error)} <button disabled={action.isPending} onClick={() => searchEnded(queue.error) ? action.mutate("search") : queue.refetch()}>{searchEnded(queue.error) ? "Start a new search" : "Try again"}</button></Notice>}
          <button className="button button-outline" disabled={action.isPending} onClick={() => action.mutate("cancel")}>Leave queue</button>
        </> : <>
+         <div className="random-entry">
          <fieldset className="mode-picker"><legend>Conversation mode</legend>
            {modes.map(({ name, id, icon: Icon }) => <label className="mode-choice" key={id}>
              <input type="radio" name="mode" value={id} checked={mode === id} onChange={() => setMode(id)} /><Icon size={18} /> {name}
            </label>)}
          </fieldset>
+         <div className="action-row random-entry-actions">
+           {profile.matchmaking_enabled && <button className="button button-primary" disabled={action.isPending} onClick={() => action.mutate("search")}>Find a match <ArrowRight size={16} /></button>}
+           <button className={"button " + (profile.matchmaking_enabled ? "button-outline" : "button-primary")} disabled={action.isPending} onClick={() => action.mutate("invite")}>Create invitation</button>
+           <button className="button button-outline" aria-expanded={accepting} onClick={() => setAccepting(!accepting)}>Join by invitation</button>
+         </div>
+         </div>
          {profile.matchmaking_enabled && <details className="form-stack"><summary>Matching preferences</summary>
            <Field label="Language" maxLength={24} placeholder="e.g. English" value={preferences.language} onChange={event => setPreferences({ ...preferences, language: event.target.value })} />
            <label className="field">Country preference<select value={preferences.country} onChange={event => setPreferences({ ...preferences, country: event.target.value })}><option value="">Any country</option><option value="IN">India</option></select></label>
            <Field label="Interests (up to 5, comma separated)" maxLength={120} placeholder="e.g. music, startups" value={preferences.interests} onChange={event => setPreferences({ ...preferences, interests: event.target.value })} />
          </details>}
-         <div className="action-row">
-           {profile.matchmaking_enabled && <button className="button button-primary" disabled={action.isPending} onClick={() => action.mutate("search")}>Find a match <ArrowRight size={16} /></button>}
-           <button className={"button " + (profile.matchmaking_enabled ? "button-outline" : "button-primary")} disabled={action.isPending} onClick={() => action.mutate("invite")}>Create invitation</button>
-           <button className="button button-outline" aria-expanded={accepting} onClick={() => setAccepting(!accepting)}>Join by invitation</button>
-         </div>
          {accepting && <form className="form-stack" onSubmit={event => { event.preventDefault(); action.mutate("accept-invite"); }}>
            <Field label="Invitation code" value={inviteToken} onChange={event => {
              const value = event.target.value;
@@ -167,6 +166,23 @@ export function Connect() {
          </form>}
        </>}
       {action.isError && <Notice error>{action.error instanceof z.ZodError ? "Enter a valid invitation code." : errorMessage(action.error)}</Notice>}
-    </section>
+  </>;
+
+  return <>
+    <div className="random-heading"><h1>Random Connect</h1><p>One-to-one conversations by video, voice, or text.</p></div>
+    {active?.state === "active" ? <>
+      <Call key={active.id} call={active} busy={action.isPending}
+        onEnd={() => action.mutate("end")} onBlock={() => action.mutate("block")}
+        onNext={searching ? () => action.mutate("next") : undefined} />
+      {action.isError && <Notice error>{errorMessage(action.error)}</Notice>}
+    </> : <RandomStudio side={<WaitingChat />} controls={controls}>
+      <RandomTile name={active?.partner ?? "Your match"} mode={modeOnStage} hint={
+        active?.state === "invited" ? "Waiting for the conversation to start" :
+        searchEnded(queue.error) ? "Ready for a new search" : searching ? "Finding someone to talk to…" :
+        modeOnStage === "video" ? "Your match’s video will appear here" :
+        modeOnStage === "audio" ? "Your voice conversation starts here" : "Start a search to meet someone"
+      } />
+      <PreviewTile key={modeOnStage + String(canConnect)} mode={modeOnStage} allowPreview={canConnect} />
+    </RandomStudio>}
   </>;
 }
