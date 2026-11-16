@@ -7,7 +7,7 @@ import { ArrowRight, Link2, MessageCircle, Mic, Video } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
-import { api, errorMessage, useAccount } from "@/lib/client";
+import { ApiError, api, errorMessage, useAccount } from "@/lib/client";
 import { Call } from "./call";
 
 const modes = [
@@ -18,6 +18,8 @@ const modes = [
 
 const queueSchema = z.object({ waiting: z.boolean(), conversation: conversation.nullable() });
 type Choice = { search_id: string; mode: Mode; language: string; country: string; interests: string[] };
+
+const searchEnded = (error: unknown) => error instanceof ApiError && error.status === 409;
 
 export function Connect() {
   const account = useAccount();
@@ -53,7 +55,8 @@ export function Connect() {
     queryKey: ["queue", profile?.id, searching, active?.id],
     enabled: canConnect && !!searching && !active,
     queryFn: ({ signal }) => api("/matchmaking/search", queueSchema, searching, signal),
-    refetchInterval: 2_000,
+    refetchInterval: query => searchEnded(query.state.error) ? false : 2_000,
+    refetchOnWindowFocus: query => !searchEnded(query.state.error),
     retry: false,
   });
 
@@ -63,6 +66,7 @@ export function Connect() {
   }, [queue.data, client, callKey]);
 
   async function joinQueue(choice: Choice) {
+    await client.cancelQueries({ queryKey: ["queue", profile?.id] });
     const result = await api("/matchmaking/search", queueSchema, { ...choice, start: true });
     setSearching(choice);
     if (result.conversation) client.setQueryData(callKey, result.conversation);
@@ -71,10 +75,11 @@ export function Connect() {
   const action = useMutation({
     mutationFn: async (verb: "invite" | "accept-invite" | "accept-match" | "end" | "next" | "cancel" | "block" | "search") => {
       if (verb === "search") {
-        await joinQueue({
-          search_id: crypto.randomUUID(), mode, language: preferences.language.trim(), country: preferences.country,
+        const choice = searching ?? {
+          mode, language: preferences.language.trim(), country: preferences.country,
           interests: [...new Set(preferences.interests.split(",").map(value => value.trim().slice(0, 40)).filter(Boolean))].slice(0, 5),
-        });
+        };
+        await joinQueue({ ...choice, search_id: crypto.randomUUID() });
       } else if (verb === "invite") {
         const result = await api("/conversations/invitations", invite, { mode });
         setInviteUrl(window.location.origin + "/connect#" + result.token);
@@ -133,8 +138,9 @@ export function Connect() {
            <button className="button button-danger" disabled={action.isPending} onClick={() => action.mutate("end")}>{active.partner ? "Decline match" : "Cancel invitation"}</button>
          </div></> :
        searching ? <>
-         <h2>Looking for someone</h2><Notice>No conversation yet. You can keep waiting or leave the queue.</Notice>
-         {queue.isError && <Notice error>{errorMessage(queue.error)} <button onClick={() => queue.error instanceof Error && "status" in queue.error && queue.error.status === 409 ? action.mutate("search") : queue.refetch()}>{queue.error instanceof Error && "status" in queue.error && queue.error.status === 409 ? "Start a new search" : "Try again"}</button></Notice>}
+         <h2>{searchEnded(queue.error) ? "Search ended" : "Looking for someone"}</h2>
+         {!queue.isError && <Notice>No conversation yet. You can keep waiting or leave the queue.</Notice>}
+         {queue.isError && <Notice error>{errorMessage(queue.error)} <button disabled={action.isPending} onClick={() => searchEnded(queue.error) ? action.mutate("search") : queue.refetch()}>{searchEnded(queue.error) ? "Start a new search" : "Try again"}</button></Notice>}
          <button className="button button-outline" disabled={action.isPending} onClick={() => action.mutate("cancel")}>Leave queue</button>
        </> : <>
          <fieldset className="mode-picker"><legend>Conversation mode</legend>

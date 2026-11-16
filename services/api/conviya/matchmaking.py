@@ -24,27 +24,28 @@ CANDIDATE_LIMIT = 64
 
 UPSERT = """
 local previous = redis.call('GET', KEYS[1])
-if previous then
-    local entry = cjson.decode(previous)
-    local requested = cjson.decode(ARGV[4])
-    if entry.search_id ~= ARGV[1] or entry.mode ~= requested.mode or entry.session ~= requested.session then return 0 end
-elseif ARGV[2] ~= '1' then
-    return 0
-end
-if not previous and not redis.call('SET', KEYS[3], '1', 'NX', 'EX', 1800) then
-    return 0
+local entry = previous and cjson.decode(previous)
+local requested = cjson.decode(ARGV[4])
+local current_search = entry and entry.search_id == requested.search_id
+if current_search then
+    if entry.mode ~= requested.mode or entry.session ~= requested.session then return false end
+else
+    if ARGV[1] ~= '1' or not redis.call('SET', KEYS[3], '1', 'NX', 'EX', 1800) then return false end
+    if entry then redis.call('ZREM', ARGV[5] .. entry.mode, ARGV[3]) end
 end
 local time = redis.call('TIME')
 local current = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
-local lease = tonumber(ARGV[3])
+local lease = tonumber(ARGV[2])
+local stored = current_search and previous or ARGV[4]
 redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', current)
-redis.call('PSETEX', KEYS[1], lease, previous or ARGV[4])
-redis.call('ZADD', KEYS[2], current + lease, ARGV[5])
-return 1
+redis.call('PSETEX', KEYS[1], lease, stored)
+redis.call('ZADD', KEYS[2], current + lease, ARGV[3])
+return stored
 """
 REMOVE = """
 local previous = redis.call('GET', KEYS[1])
-if previous and cjson.decode(previous).search_id == ARGV[1] then
+local entry = previous and cjson.decode(previous)
+if entry and entry.search_id == ARGV[1] and entry.mode == ARGV[3] then
     redis.call('DEL', KEYS[1])
     redis.call('ZREM', KEYS[2], ARGV[2])
     return 1
@@ -68,7 +69,10 @@ class Search(SearchKey):
 
 
 async def delete_entry(user_id: UUID, key: SearchKey):
-    return await cache.eval(REMOVE, 2, PREFIX + str(user_id), PREFIX + "mode:" + key.mode, str(key.search_id), str(user_id))
+    return await cache.eval(
+        REMOVE, 2, PREFIX + str(user_id), PREFIX + "mode:" + key.mode,
+        str(key.search_id), str(user_id), key.mode,
+    )
 
 
 def compatible(left, right):
@@ -137,19 +141,14 @@ async def search(payload: Search, request: Request, user: EligibleUser, db: Db):
         "session": digest(request.cookies[cookie_name]), "joined_at": now().timestamp(),
     }
     try:
-        renewed = await cache.eval(
+        stored = await cache.eval(
             UPSERT, 3, PREFIX + str(user.id), PREFIX + "mode:" + payload.mode,
             PREFIX + "used:" + str(user.id) + ":" + str(payload.search_id),
-            str(payload.search_id), int(payload.start), LEASE_SECONDS * 1000, json.dumps(entry), str(user.id),
+            int(payload.start), LEASE_SECONDS * 1000, str(user.id), json.dumps(entry), PREFIX + "mode:",
         )
-        if not renewed:
-            raise HTTPException(409, "This search has expired or is already open in another tab.")
-        stored = await cache.get(PREFIX + str(user.id))
         if not stored:
-            raise HTTPException(409, "This search has expired.")
+            raise HTTPException(409, "This search ended. Start a new search to continue.")
         own = json.loads(stored)
-        if own["mode"] != payload.mode or own["session"] != entry["session"]:
-            raise HTTPException(409, "This search belongs to a different conversation mode or session.")
         for candidate_id, candidate in await queued_candidates(user.id, own):
             call = await reserve(db, user.id, candidate_id, candidate, payload.mode)
             if call:

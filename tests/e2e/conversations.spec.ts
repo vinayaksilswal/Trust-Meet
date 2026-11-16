@@ -67,6 +67,44 @@ test("discovery is accessible and fits a mobile viewport", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Sign in to connect" })).toBeVisible();
 });
 
+test("a fresh Random Connect search replaces a previous tab's lease", async ({ page, context, request }) => {
+  await provision(page, request, "QueueTester");
+  await page.goto("/connect");
+  await page.getByRole("radio", { name: "Text" }).check();
+  const firstStart = page.waitForRequest(outgoing => outgoing.url().endsWith("/matchmaking/search") &&
+    outgoing.method() === "POST" && outgoing.postDataJSON()?.start === true);
+  await page.getByRole("button", { name: "Find a match" }).click();
+  const oldSearch = (await firstStart).postDataJSON();
+  await expect(page.getByRole("heading", { name: "Looking for someone" })).toBeVisible();
+
+  const secondTab = await context.newPage();
+  await secondTab.goto("/connect");
+  await secondTab.getByRole("radio", { name: "Voice" }).check();
+  await secondTab.getByRole("button", { name: "Find a match" }).click();
+  await expect(secondTab.getByRole("heading", { name: "Looking for someone" })).toBeVisible();
+
+  const origin = new URL(page.url()).origin;
+  const call = (action: string, data: unknown) =>
+    page.request.post(origin + "/api/matchmaking/" + action, { data, headers: { Origin: origin } });
+  const oldKey = { search_id: oldSearch.search_id, mode: oldSearch.mode };
+  expect((await call("search", oldKey)).status()).toBe(409);
+  expect((await call("search", oldSearch)).status()).toBe(409);
+  expect((await call("cancel", oldKey)).status()).toBe(204);
+  await page.bringToFront();
+  await expect(page.getByRole("button", { name: "Start a new search" })).toBeVisible();
+  const heartbeat = secondTab.waitForResponse(response => response.url().endsWith("/matchmaking/search") &&
+    response.request().method() === "POST" && !response.request().postDataJSON()?.start);
+  await secondTab.bringToFront();
+  expect((await heartbeat).status()).toBe(200);
+
+  await secondTab.reload();
+  await secondTab.getByRole("radio", { name: "Voice" }).check();
+  await secondTab.getByRole("button", { name: "Find a match" }).click();
+  await expect(secondTab.getByRole("heading", { name: "Looking for someone" })).toBeVisible();
+  await secondTab.getByRole("button", { name: "Leave queue" }).click();
+  await expect(secondTab.getByRole("button", { name: "Find a match" })).toBeVisible();
+});
+
 for (const mode of ["Text", "Voice", "Video"] as const) {
   test(`two signed-in accounts exchange ${mode.toLowerCase()} through LiveKit`, async ({ browser, request }) => {
     const { first, second, alice, amit } = await twoAccounts(browser, request);
