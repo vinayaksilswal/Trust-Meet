@@ -6,13 +6,13 @@ from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert
 
 from .config import settings
-from .age_verification import PROVIDER, adult_on
-from .identity import CurrentUser, Db, can_sign_in
+from .identity import CurrentUser, Db
 from .models import Eligibility, User
 from .runtime import now, throttle
 
 
 router = APIRouter(tags=["eligibility"])
+LEGACY_DOCUMENT_CHECK = "veriff_identity"
 
 
 class BirthDate(BaseModel):
@@ -29,16 +29,18 @@ class DevelopmentAgeAssurance:
     name = "development_self_report"
 
     def is_adult(self, birth_date: date, today: date) -> bool:
-        return adult_on(birth_date, today)
+        age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+        return age >= 18
 
 
-class HostedTestAgeAssurance(DevelopmentAgeAssurance):
+class HostedAgeAssurance(DevelopmentAgeAssurance):
+    # Keep recorded outcomes from the existing hosted date-of-birth form.
     name = "hosted_test_self_report"
 
 
 def assurance_provider() -> AgeAssurance | None:
-    if settings.enable_hosted_test_age_check:
-        return HostedTestAgeAssurance()
+    if settings.environment == "production":
+        return HostedAgeAssurance()
     if settings.environment in {"development", "test", "lan"} and settings.enable_dev_age_assurance:
         return DevelopmentAgeAssurance()
     return None
@@ -50,11 +52,9 @@ async def eligible(db: Db, user: User):
 
 
 def has_adult_eligibility(user: User, row: Eligibility | None) -> bool:
-    if settings.public_conversations:
-        return bool(user.status == "active" and can_sign_in(user) and row and row.is_adult and row.provider == PROVIDER)
     provider = assurance_provider()
-    return bool(can_sign_in(user) and user.status == "active" and provider and
-                row and row.is_adult and row.provider in {provider.name, PROVIDER})
+    return bool(user.status == "active" and provider and
+                row and row.is_adult and row.provider in {provider.name, LEGACY_DOCUMENT_CHECK})
 
 
 async def require_eligible(user: CurrentUser, db: Db):
@@ -70,8 +70,7 @@ async def me(user: CurrentUser, db: Db):
     return {
         "id": user.id, "display_name": user.display_name, "email": user.email,
         "eligible": has_adult_eligibility(user, row), "age_check_available": provider is not None,
-        "age_check_underage": bool(provider and row and row.provider in {provider.name, PROVIDER} and not row.is_adult),
-        "online_age_check_available": settings.public_conversations,
+        "age_check_underage": bool(provider and row and row.provider in {provider.name, LEGACY_DOCUMENT_CHECK} and not row.is_adult),
         "conversations_enabled": settings.enable_conversations,
         "matchmaking_enabled": settings.enable_matchmaking,
         "private_rooms_enabled": settings.enable_private_rooms,
@@ -89,7 +88,7 @@ async def check_age(payload: BirthDate, user: CurrentUser, db: Db):
     await throttle("eligibility", str(user.id), 5, 3600)
     await db.get(User, user.id, with_for_update=True)
     prior = await db.get(Eligibility, user.id)
-    if prior and prior.provider in {provider.name, PROVIDER}:
+    if prior and prior.provider in {provider.name, LEGACY_DOCUMENT_CHECK}:
         raise HTTPException(409, "This account already completed the age check.")
     is_adult = provider.is_adult(payload.birth_date, today)
     result = {"is_adult": is_adult, "provider": provider.name, "checked_at": now()}

@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 
 const sections = new Map([
   ["safety", { title: "Safety Center", lines: [
-    "Trust Meet conversations are for adults. Confirm your email and complete the eligibility check before joining.",
+    "Trust Meet conversations are for adults. Complete the date-of-birth check before joining.",
     "Random Connect asks for device access when you start a search and turns on the devices for your selected mode after both people accept. Use the call controls to mute, turn off your camera, leave, or block the other participant.",
     "Use Report to flag behaviour such as harassment, threats, scams, or suspected underage use. Reports are saved for review.",
   ] }],
@@ -13,7 +13,7 @@ const sections = new Map([
     "Use Random Connect to meet someone new, or create a Private Room and share an invitation.",
   ] }],
   ["privacy", { title: "Privacy", lines: [
-    "Trust Meet stores account details, eligibility outcomes, and conversation timestamps. Online age verification takes place with Veriff. Trust Meet stores the result and discards the verified birth date after checking your age.",
+    "Trust Meet stores account details, eligibility outcomes, and conversation timestamps. If you enter a date of birth, Trust Meet uses it to check the 18+ requirement and stores only the result.",
     "The configured media provider, LiveKit or Cloudflare RealtimeKit, carries media and live messages between participants. Trust Meet does not enable session recording or store chat history.",
   ] }],
   ["wellness", { title: "Mental Wellness" }],

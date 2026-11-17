@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import httpx
 
-from test_foundation import origin, verified_account
+from test_foundation import origin, signed_in_account
 
 
 def test_concurrent_matching_requires_both_consents_and_honors_block():
@@ -14,7 +14,7 @@ def test_concurrent_matching_requires_both_consents_and_honors_block():
             for _ in range(3)
         ]
         for client in seekers:
-            verified_account(client)
+            signed_in_account(client)
             assert client.post("eligibility", json={"birth_date": "1990-01-01"}).json() == {"eligible": True}
         interests = [uuid4().hex]
         searches = [{"search_id": str(uuid4()), "mode": "text", "start": True, "language": "English",
@@ -66,7 +66,7 @@ def test_queue_uses_mode_language_and_interests():
             for _ in range(2)
         ]
         for client in (first, second):
-            verified_account(client)
+            signed_in_account(client)
             assert client.post("eligibility", json={"birth_date": "1990-01-01"}).is_success
         topic = uuid4().hex
         key = {"search_id": str(uuid4()), "mode": "audio"}

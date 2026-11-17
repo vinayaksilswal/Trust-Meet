@@ -22,16 +22,10 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     resend_api_key: str = ""
     enable_dev_age_assurance: bool = False
-    enable_hosted_test_age_check: bool = False
     enable_conversations: bool = False
     enable_matchmaking: bool = False
     enable_private_rooms: bool = False
-    lan_skip_email_verification: bool = False
-    production_skip_email_verification: bool = False
     public_conversations: bool = False
-    veriff_api_url: str = "https://stationapi.veriff.com"
-    veriff_api_key: str = ""
-    veriff_shared_secret: str = ""
     web_proxy_secret: str = ""
     livekit_api_url: str = "http://127.0.0.1:7880"
     livekit_ws_url: str = "ws://localhost:7880"
@@ -53,10 +47,6 @@ class Settings(BaseSettings):
             return self.smtp_password
         return ""
 
-    @property
-    def email_verification_required(self) -> bool:
-        return not (self.lan_skip_email_verification or self.production_skip_email_verification)
-
     @model_validator(mode="after")
     def enforce_launch_gates(self):
         if self.media_provider == "realtimekit":
@@ -70,12 +60,6 @@ class Settings(BaseSettings):
             presets = {self.realtimekit_video_preset, self.realtimekit_audio_preset, self.realtimekit_text_preset}
             if len(presets) != 3 or not all(preset.strip() for preset in presets):
                 raise ValueError("RealtimeKit requires separate text, audio and video presets.")
-        if self.lan_skip_email_verification and self.environment != "lan":
-            raise ValueError("Skipping email verification is available only in LAN testing.")
-        if self.production_skip_email_verification and self.environment != "production":
-            raise ValueError("The production email verification switch is available only in production.")
-        if self.enable_hosted_test_age_check and (self.environment != "production" or self.public_conversations):
-            raise ValueError("The hosted test age check is available only in production with public conversations off.")
         if self.public_conversations and self.environment != "production":
             raise ValueError("Public conversations require production settings.")
         origin = urlsplit(self.web_origin)
@@ -84,19 +68,13 @@ class Settings(BaseSettings):
         if (self.enable_matchmaking or self.enable_private_rooms) and not self.enable_conversations:
             raise ValueError("Matchmaking and private rooms require conversations.")
         if self.environment == "production":
-            authenticated_smtp = self.smtp_starttls and self.smtp_username and self.smtp_password
-            if origin.scheme != "https" or not (self.resend_key or authenticated_smtp):
-                raise ValueError("Production requires an HTTPS web origin and authenticated TLS mail.")
+            if origin.scheme != "https":
+                raise ValueError("Production requires an HTTPS web origin.")
             if self.enable_dev_age_assurance or (self.enable_conversations and not self.public_conversations):
                 raise ValueError("Production conversations require approved age assurance and media enforcement.")
             if len(self.web_proxy_secret) < 32:
                 raise ValueError("Production requires a dedicated web proxy secret.")
             if self.public_conversations:
-                veriff = urlsplit(self.veriff_api_url)
-                if (veriff.scheme != "https" or not veriff.hostname or not veriff.hostname.endswith(".veriff.com")
-                        or veriff.netloc != veriff.hostname or veriff.path or veriff.query or veriff.fragment
-                        or not self.veriff_api_key or not self.veriff_shared_secret):
-                    raise ValueError("Public conversations require a Veriff identity verification integration.")
                 ws = urlsplit(self.livekit_ws_url)
                 if self.media_provider == "livekit" and (ws.scheme != "wss" or not ws.hostname or not ws.hostname.endswith(".livekit.cloud")
                         or ws.netloc != ws.hostname or ws.path or ws.query or ws.fragment

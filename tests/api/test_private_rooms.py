@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
-from test_foundation import origin, verified_account
+from test_foundation import origin, signed_in_account
 
 
 def test_private_room_authorization_schedule_and_atomic_capacity():
@@ -14,7 +14,7 @@ def test_private_room_authorization_schedule_and_atomic_capacity():
             for _ in range(3)
         ]
         for client in (owner, first, second):
-            verified_account(client)
+            signed_in_account(client)
             assert client.post("eligibility", json={"birth_date": "1990-01-01"}).is_success
         started = datetime.now(UTC) + timedelta(hours=1)
         room = owner.post("rooms", json={

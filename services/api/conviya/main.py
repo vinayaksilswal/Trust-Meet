@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from redis.exceptions import RedisError
 
-from . import age_verification, conversations, eligibility, identity, matchmaking, realtimekit, rooms
+from . import conversations, eligibility, identity, matchmaking, realtimekit, rooms
 from .config import settings
 from .maintenance import maintain
 from .runtime import cache, database_sqlstate, engine, require_maintenance
@@ -102,7 +102,6 @@ async def ready():
 
 app.include_router(identity.router)
 app.include_router(eligibility.router)
-app.include_router(age_verification.router)
 app.include_router(conversations.router)
 app.include_router(matchmaking.router)
 app.include_router(rooms.router)

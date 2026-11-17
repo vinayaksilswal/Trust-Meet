@@ -2,7 +2,7 @@
 
 For Vercel, follow the [multi-service deployment guide](docs/DEPLOYMENT.md). It covers the frontend, internal FastAPI service, maintenance daemon, public signup and live provider checks.
 
-Trust Meet is an India-first platform for adult conversation. This local development release includes verified accounts, an age eligibility interface, Random Connect with Redis-backed matchmaking, and private rooms. LiveKit carries text, voice and video.
+Trust Meet is an India-first platform for adult conversation. The local development stack includes password sign-in, a date-of-birth check, Random Connect with Redis-backed matchmaking, and private rooms. LiveKit carries text, voice and video in local development.
 
 ## Run locally with Docker
 
@@ -22,11 +22,10 @@ The Windows LAN launcher uses the native development services, the optimized Nex
 1. Use the host's Wi-Fi IPv4 address. With mkcert available, set `$env:CAROOT` to the workspace's `.local/lan` directory and generate `site.pem` and `site-key.pem` there using `mkcert -cert-file .local/lan/site.pem -key-file .local/lan/site-key.pem <host-ip>`.
 2. From the repository root, run `npm run build`, then `./scripts/Start-TrustMeetLan.ps1 -Address <host-ip>`. The launcher expects the native Windows development binaries and Python environment in `.local` and `.venv`.
 3. On each test device, trust the local CA certificate and open `https://<host-ip>:3443`. Share only the public CA certificate, such as `trust-meet-local-ca.cer`. Keep both private key files on the host. On iPhone or iPad, enable full trust after installing the certificate. [Apple certificate trust](https://support.apple.com/en-us/102390) · [Android certificate installation](https://support.google.com/pixelphone/answer/2844832)
-4. Sign in with a different verified account on each device. In **Private Rooms**, create a room in **Video** mode. Share the invitation, approve the guest, then select **Join call** on both devices and enable the camera and microphone. For a one-to-one test, use **Random Connect** and create an invitation or match from both devices.
+4. Sign in with a different account on each device and complete the date-of-birth check. In **Private Rooms**, create a room in **Video** mode. Share the invitation, approve the guest, then select **Join call** on both devices and enable the camera and microphone. For a one-to-one test, use **Random Connect** and create an invitation or match from both devices.
 
 The gateway serves TCP 3443 and LiveKit receives media on UDP 7892. Use the same Wi-Fi network and allow those ports within the local subnet if the host firewall requires it. The API, database, Redis and Mailpit use loopback, and the LAN launcher keeps production gates in place. Run `./scripts/Stop-TrustMeetLan.ps1` to stop the LAN test processes.
 
-While test email is unavailable, add `-SkipEmailVerification` to the LAN launch command. Testers can sign in with their existing passwords and complete the age check. Restart without the switch to require email confirmation again.
 
 ## Run with native dependencies
 

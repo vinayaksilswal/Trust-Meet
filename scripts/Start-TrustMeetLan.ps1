@@ -62,7 +62,6 @@ try {
     try { $rng.GetBytes($secretBytes) } finally { $rng.Dispose() }
     $secret = [Convert]::ToBase64String($secretBytes)
     $env:ENVIRONMENT = 'lan'
-    $env:LAN_SKIP_EMAIL_VERIFICATION = $SkipEmailVerification.IsPresent.ToString()
     $env:WEB_ORIGIN = $origin
     $env:DATABASE_URL = 'postgresql+psycopg://conviya:conviya@127.0.0.1:55432/conviya'
     $env:REDIS_URL = 'redis://127.0.0.1:56379/0'

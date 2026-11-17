@@ -56,12 +56,11 @@ class PasswordReset(TokenInput):
     password: Password
 
 
-def send_mail(email: str, token: str, purpose: str):
-    action = "verify" if purpose == "verify" else "reset"
-    subject = "Verify your Trust Meet email" if action == "verify" else "Reset your Trust Meet password"
+def send_password_reset(email: str, token: str):
+    subject = "Reset your Trust Meet password"
     body = (
-        f"Open this link to {action} your Trust Meet account.\n\n"
-        f"{settings.web_origin}/account/{action}#{token}\n\n"
+        "Open this link to reset your Trust Meet password.\n\n"
+        f"{settings.web_origin}/account/reset#{token}\n\n"
         "If you did not request this, you can ignore this message."
     )
     resend_key = settings.resend_key
@@ -74,6 +73,9 @@ def send_mail(email: str, token: str, purpose: str):
         )
         with urlopen(request, timeout=5):
             return
+
+    if settings.environment == "production" and not (settings.smtp_starttls and settings.smtp_username and settings.smtp_password):
+        raise OSError("Authenticated password reset mail is not configured.")
 
     message = EmailMessage()
     message["From"] = settings.smtp_sender
@@ -88,13 +90,12 @@ def send_mail(email: str, token: str, purpose: str):
         smtp.send_message(message)
 
 
-async def issue_account_link(db: AsyncSession, user: User, purpose: str):
+async def issue_password_reset(db: AsyncSession, user: User):
     token = new_token()
-    lifetime = timedelta(hours=12) if purpose == "verify" else timedelta(minutes=30)
-    db.add(AccountToken(token_hash=digest(token), user_id=user.id, purpose=purpose, expires_at=now() + lifetime))
+    db.add(AccountToken(token_hash=digest(token), user_id=user.id, purpose="reset", expires_at=now() + timedelta(minutes=30)))
     await db.commit()
     try:
-        await asyncio.to_thread(send_mail, user.email, token, purpose)
+        await asyncio.to_thread(send_password_reset, user.email, token)
     except (OSError, smtplib.SMTPException) as err:
         provider_status = err.code if isinstance(err, HTTPError) else getattr(err, "smtp_code", None)
         logger.warning("Account email delivery failed (%s, provider status %s)", type(err).__name__, provider_status)
@@ -119,7 +120,7 @@ async def current_user(request: Request, db: Db) -> User:
         .join(LoginSession)
         .where(LoginSession.token_hash == digest(token), LoginSession.expires_at > now(), User.status == "active")
     )
-    if not user or not can_sign_in(user):
+    if not user:
         raise HTTPException(401, "Your session has expired or is no longer available.")
     return user
 
@@ -127,13 +128,9 @@ async def current_user(request: Request, db: Db) -> User:
 CurrentUser = Annotated[User, Depends(current_user)]
 
 
-def can_sign_in(user: User):
-    return user.email_verified_at is not None or not settings.email_verification_required
-
-
 @router.get("/options")
 async def options():
-    return {"email_verification_required": settings.email_verification_required}
+    return {"email_verification_required": False}
 
 
 @router.post("/register", status_code=202)
@@ -144,30 +141,15 @@ async def register(payload: Registration, request: Request, db: Db):
     statement = insert(User).values(
         email=payload.email.casefold(), display_name=payload.display_name, password_hash=password_hash
     )
-    user = await db.scalar(statement.on_conflict_do_nothing(index_elements=[User.email]).returning(User))
-    if not settings.email_verification_required:
-        await db.commit()
-        return {"message": "You can sign in now. Email verification is paused for testing."}
-    if user:
-        await issue_account_link(db, user, "verify")
-    return {"message": "Check your inbox for a verification link. Use Resend verification if it hasn’t arrived."}
+    await db.execute(statement.on_conflict_do_nothing(index_elements=[User.email]))
+    await db.commit()
+    return {"message": "You can sign in now with your email and password."}
 
 
-@router.post("/resend", status_code=202)
-async def resend(payload: Address, request: Request, db: Db):
-    if not settings.email_verification_required:
-        return {"message": "You can sign in now. Email verification is paused for testing."}
-    await auth_limits(request, payload.email, "resend")
-    user = await find_user(db, payload.email)
-    if user and user.status == "active" and user.email_verified_at is None:
-        await issue_account_link(db, user, "verify")
-    return {"message": "If the address needs verification, a link is on its way."}
-
-
-async def consume_token(db: AsyncSession, token: str, purpose: str):
+async def consume_reset_token(db: AsyncSession, token: str):
     token_hash = digest(token)
     account_token = await db.get(AccountToken, token_hash)
-    if not account_token or account_token.purpose != purpose:
+    if not account_token or account_token.purpose != "reset":
         raise HTTPException(400, "This link is invalid or expired.")
     user = await db.get(User, account_token.user_id, with_for_update=True)
     if not user or user.status != "active":
@@ -179,32 +161,27 @@ async def consume_token(db: AsyncSession, token: str, purpose: str):
     )
     if consumed is None:
         raise HTTPException(400, "This link is invalid or expired.")
-    await db.execute(delete(AccountToken).where(AccountToken.user_id == user.id, AccountToken.purpose == purpose))
+    await db.execute(delete(AccountToken).where(AccountToken.user_id == user.id, AccountToken.purpose == "reset"))
     return user
-
-
-@router.post("/verify")
-async def verify(payload: TokenInput, request: Request, db: Db):
-    await throttle("verify", client_key(request), 35, 300)
-    user = await consume_token(db, payload.token, "verify")
-    user.email_verified_at = now()
-    await db.commit()
-    return {"message": "Email verified. You can now sign in."}
 
 
 @router.post("/recover", status_code=202)
 async def recover(payload: Address, request: Request, db: Db):
     await auth_limits(request, payload.email, "recover")
     user = await find_user(db, payload.email)
-    if user and user.status == "active" and user.email_verified_at:
-        await issue_account_link(db, user, "reset")
-    return {"message": "If the address has a verified account, a reset link is on its way."}
+    if user and user.status == "active":
+        try:
+            await issue_password_reset(db, user)
+        except HTTPException as err:
+            if err.status_code != 503:
+                raise
+    return {"message": "If this email is registered, check your inbox for a reset link."}
 
 
 @router.post("/reset")
 async def reset(payload: PasswordReset, request: Request, db: Db):
     await throttle("reset", client_key(request), 20, 300)
-    user = await consume_token(db, payload.token, "reset")
+    user = await consume_reset_token(db, payload.token)
     async with hash_slots:
         user.password_hash = await asyncio.to_thread(hasher.hash, payload.password)
     await db.execute(delete(LoginSession).where(LoginSession.user_id == user.id))
@@ -223,8 +200,6 @@ async def login(payload: Credentials, request: Request, response: Response, db: 
         raise HTTPException(401, "Email or password is incorrect.") from err
     if not user or user.status != "active":
         raise HTTPException(401, "Email or password is incorrect.")
-    if not can_sign_in(user):
-        raise HTTPException(403, "Verify your email before signing in.")
     token = new_token()
     prior = request.cookies.get(cookie_name, "")
     if len(prior) == 43:

@@ -33,14 +33,10 @@ def mail_token(address, action):
     raise AssertionError(f"Expected {action} email")
 
 
-def verified_account(client):
+def signed_in_account(client):
     email = f"test-{uuid4().hex}@example.com"
     credentials = {"email": email, "password": password}
     assert client.post("auth/register", json={**credentials, "display_name": "Integration User"}).status_code == 202
-    assert client.post("auth/login", json=credentials).status_code == 403
-    proof = {"token": mail_token(email, "verify")}
-    assert client.post("auth/verify", json=proof).status_code == 200
-    assert client.post("auth/verify", json=proof).status_code == 400
     response = client.post("auth/login", json=credentials)
     assert response.status_code == 200
     assert "HttpOnly" in response.headers["set-cookie"] and "SameSite=strict" in response.headers["set-cookie"]
@@ -79,11 +75,6 @@ def test_lan_requires_private_https_and_same_origin_signaling():
             Settings(**(lan | changes))
 
 
-@pytest.mark.parametrize("environment", ["development", "test", "production"])
-def test_email_bypass_requires_lan_environment(environment):
-    with pytest.raises(ValidationError, match="available only in LAN testing"):
-        Settings(environment=environment, lan_skip_email_verification=True)
-
 def test_readiness_and_csrf(client):
     assert client.get("ready").json() == {"status": "ready"}
     response = client.post("auth/logout", headers={"Origin": "https://wrong.example"}, json={})
@@ -92,14 +83,14 @@ def test_readiness_and_csrf(client):
 
 
 def test_underage_cannot_retry_or_invite(client):
-    verified_account(client)
+    signed_in_account(client)
     assert client.post("eligibility", json={"birth_date": date.today().isoformat()}).json() == {"eligible": False}
     assert client.post("eligibility", json={"birth_date": "1990-01-01"}).status_code == 409
     assert client.post("conversations/invitations", json={"mode": "video"}).status_code == 403
 
 
 def test_password_reset_and_logout_revoke_sessions(client):
-    credentials = verified_account(client)
+    credentials = signed_in_account(client)
     token = client.cookies.get(cookie_name)
     assert client.post("auth/recover", json={"email": credentials["email"]}).status_code == 202
     proof = mail_token(credentials["email"], "reset")

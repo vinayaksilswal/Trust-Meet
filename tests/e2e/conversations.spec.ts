@@ -1,55 +1,33 @@
 import { randomUUID } from "node:crypto";
 import axe from "@axe-core/playwright";
-import { expect, test, type APIRequestContext, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Page } from "@playwright/test";
 
-const mailpit = process.env.CONVIYA_TEST_MAIL_URL ?? "http://127.0.0.1:8025";
 const password = "test only long password 23!";
 
-async function provision(page: Page, request: APIRequestContext, name: string) {
+async function provision(page: Page, name: string) {
   const email = `${name.toLowerCase()}-${randomUUID().slice(0, 8)}@example.com`;
   await page.goto("/account/register");
   await page.getByLabel("Display name").fill(name);
   await page.getByLabel("Email address").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Create an account" }).click();
-  const options = await request.get(new URL("/api/auth/options", page.url()).href);
-  const verificationRequired = (await options.json()).email_verification_required;
-  if (verificationRequired) {
-    await expect(page.getByRole("status")).toHaveText(/Check your inbox/);
-    let verificationLink = "";
-    await expect.poll(async () => {
-      const response = await request.get(mailpit + "/api/v1/search", { params: { query: "to:" + email } });
-      const result = await response.json();
-      const preview = result.messages?.[0];
-      if (preview) {
-        const detail = await request.get(mailpit + "/api/v1/message/" + preview.ID);
-        verificationLink = (await detail.json()).Text.match(/https?:\/\/[^\s]+\/account\/verify#[\w-]+/)?.[0] ?? "";
-      }
-      return verificationLink;
-    }).toContain("/account/verify#");
-    await page.goto(verificationLink);
-    await page.getByRole("button", { name: "Verify your email" }).click();
-    await expect(page.getByRole("status")).toHaveText(/Email verified/);
-  } else {
-    await expect(page.getByRole("status")).toHaveText(/You can sign in now/);
-    await expect(page.getByRole("link", { name: "Resend verification" })).toHaveCount(0);
-  }
-  await page.getByRole("link", { name: "Back to sign in" }).click();
+  await expect(page.getByRole("status")).toHaveText(/You can sign in now/);
+  await page.getByRole("link", { name: "Sign in", exact: true }).last().click();
   await page.getByLabel("Email address").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Your account" })).toBeVisible();
   await page.getByLabel("Date of birth").fill("1990-06-15");
-  await page.getByRole("button", { name: "Check eligibility" }).click();
-  await expect(page.getByRole("status")).toHaveText(/Adult eligibility confirmed/);
+  await page.getByRole("button", { name: "Check my age" }).click();
+  await expect(page.getByRole("status")).toHaveText(/18\+ age check complete/);
 }
 
-async function twoAccounts(browser: Browser, request: APIRequestContext) {
+async function twoAccounts(browser: Browser) {
   const first = await browser.newContext({ permissions: ["camera", "microphone"] });
   const second = await browser.newContext({ permissions: ["camera", "microphone"] });
   const alice = await first.newPage();
   const amit = await second.newPage();
-  await Promise.all([provision(alice, request, "Ananya"), provision(amit, request, "Amit")]);
+  await Promise.all([provision(alice, "Ananya"), provision(amit, "Amit")]);
   return { first, second, alice, amit };
 }
 
@@ -67,8 +45,8 @@ test("discovery is accessible and fits a mobile viewport", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Sign in to connect" })).toBeVisible();
 });
 
-test("a fresh Random Connect search replaces a previous tab's lease", async ({ page, context, request }) => {
-  await provision(page, request, "QueueTester");
+test("a fresh Random Connect search replaces a previous tab's lease", async ({ page, context }) => {
+  await provision(page, "QueueTester");
   await page.goto("/connect");
   await page.getByRole("radio", { name: "Text" }).check();
   const firstStart = page.waitForRequest(outgoing => outgoing.url().endsWith("/matchmaking/search") &&
@@ -105,8 +83,8 @@ test("a fresh Random Connect search replaces a previous tab's lease", async ({ p
   await expect(secondTab.getByRole("button", { name: "Find a match" })).toBeVisible();
 });
 
-test("the Random Connect studio supports a local camera preview and mobile layout", async ({ page, request }) => {
-  await provision(page, request, "CameraTester");
+test("the Random Connect studio supports a local camera preview and mobile layout", async ({ page }) => {
+  await provision(page, "CameraTester");
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/connect");
   const local = page.getByRole("region", { name: "You", exact: true });
@@ -129,8 +107,8 @@ test("the Random Connect studio supports a local camera preview and mobile layou
 });
 
 for (const mode of ["Text", "Voice", "Video"] as const) {
-  test(`two signed-in accounts exchange ${mode.toLowerCase()} through LiveKit`, async ({ browser, request }) => {
-    const { first, second, alice, amit } = await twoAccounts(browser, request);
+  test(`two signed-in accounts exchange ${mode.toLowerCase()} through LiveKit`, async ({ browser }) => {
+    const { first, second, alice, amit } = await twoAccounts(browser);
     try {
       await alice.goto("/connect");
       await alice.getByRole("radio", { name: mode }).check();
@@ -176,8 +154,8 @@ for (const mode of ["Text", "Voice", "Video"] as const) {
   });
 }
 
-test("Random Connect waits for mutual consent and can skip to a fresh search", async ({ browser, request }) => {
-  const { first, second, alice, amit } = await twoAccounts(browser, request);
+test("Random Connect waits for mutual consent and can skip to a fresh search", async ({ browser }) => {
+  const { first, second, alice, amit } = await twoAccounts(browser);
   try {
     await Promise.all([alice.goto("/connect"), amit.goto("/connect")]);
     await Promise.all([alice.getByRole("radio", { name: "Text" }).check(), amit.getByRole("radio", { name: "Text" }).check()]);
@@ -198,8 +176,8 @@ test("Random Connect waits for mutual consent and can skip to a fresh search", a
   }
 });
 
-test("Random Connect asks for both devices and publishes only after both people accept", async ({ browser, request }) => {
-  const { first, second, alice, amit } = await twoAccounts(browser, request);
+test("Random Connect asks for both devices and publishes only after both people accept", async ({ browser }) => {
+  const { first, second, alice, amit } = await twoAccounts(browser);
   try {
     await alice.addInitScript(() => {
       const state = window as typeof window & { allowTestMedia: boolean; testMediaRequests: MediaStreamConstraints[] };
@@ -240,12 +218,12 @@ test("Random Connect asks for both devices and publishes only after both people 
   }
 });
 
-test("private room hosts can approve, mute, and remove guests in a group LiveKit call", async ({ browser, request }) => {
-  const { first, second, alice, amit } = await twoAccounts(browser, request);
+test("private room hosts can approve, mute, and remove guests in a group LiveKit call", async ({ browser }) => {
+  const { first, second, alice, amit } = await twoAccounts(browser);
   const extra = await browser.newContext({ permissions: ["camera", "microphone"] });
   const guest = await extra.newPage();
   try {
-    await provision(guest, request, "Isha");
+    await provision(guest, "Isha");
     await alice.goto("/private-rooms");
     await alice.getByLabel("Room title").fill("Founder discussion");
     await alice.getByRole("combobox", { name: "Mode", exact: true }).selectOption("video");

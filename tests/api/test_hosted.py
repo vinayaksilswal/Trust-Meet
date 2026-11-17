@@ -11,7 +11,7 @@ import httpx
 from pydantic import ValidationError
 
 from conviya.config import Settings
-from conviya import age_verification, conversations, eligibility, identity, main, realtimekit
+from conviya import conversations, eligibility, identity, main, realtimekit
 from conviya.models import RealtimeMeeting, RealtimeParticipant
 from conviya.runtime import now
 from fastapi import HTTPException
@@ -24,7 +24,6 @@ def hosted_settings(**changes):
         livekit_api_url="https://sample.livekit.cloud", livekit_ws_url="wss://sample.livekit.cloud",
         livekit_api_key="test-project", livekit_api_secret="m" * 40,
         database_url="postgresql+psycopg://user:pass@db.example.com/meet?sslmode=verify-full",
-        veriff_api_key="test-veriff-key", veriff_shared_secret="test-veriff-secret",
         redis_url="rediss://redis.example.com:6379", enable_conversations=True,
         enable_matchmaking=True, enable_private_rooms=True,
     )
@@ -35,16 +34,12 @@ def test_hosted_configuration_allows_only_guarded_media():
     assert hosted_settings().enable_matchmaking
     for change in (
         {"public_conversations": False},
-        {"veriff_api_key": ""},
-        {"veriff_api_url": "https://veriff.example.net"},
         {"livekit_ws_url": "ws://localhost:7880"},
         {"livekit_api_key": "devkey"},
         {"web_proxy_secret": ""},
         {"redis_url": "rediss://redis.example.com:6379?ssl_check_hostname=false"},
         {"database_url": "postgresql+psycopg://user:pass@db.example.com/meet?sslmode=require"},
         {"enable_dev_age_assurance": True},
-        {"enable_hosted_test_age_check": True},
-        {"lan_skip_email_verification": True},
     ):
         with pytest.raises(ValidationError):
             hosted_settings(**change)
@@ -130,17 +125,17 @@ def test_hosted_gateway_blocks_direct_api_traffic(monkeypatch):
     asyncio.run(exercise())
 
 
-def test_temporary_production_signup_and_login_skip_email_but_require_adult_proof(monkeypatch):
-    settings = hosted_settings(production_skip_email_verification=True)
+def test_production_signup_and_login_use_password_and_keep_the_age_check(monkeypatch):
+    settings = hosted_settings()
     for module in (main, identity, eligibility):
         monkeypatch.setattr(module, "settings", settings)
     send = AsyncMock()
-    monkeypatch.setattr(identity, "issue_account_link", send)
+    monkeypatch.setattr(identity, "send_password_reset", send)
     monkeypatch.setattr(identity, "auth_limits", AsyncMock())
     password = "test-only-password"
     user = SimpleNamespace(id=uuid4(), status="active", email_verified_at=None,
                            password_hash=identity.hasher.hash(password))
-    db = MagicMock(scalar=AsyncMock(return_value=user), commit=AsyncMock(), get=AsyncMock(return_value=None))
+    db = MagicMock(scalar=AsyncMock(return_value=user), execute=AsyncMock(), commit=AsyncMock(), get=AsyncMock(return_value=None))
 
     async def test_database():
         yield db
@@ -154,11 +149,9 @@ def test_temporary_production_signup_and_login_skip_email_but_require_adult_proo
             assert (await client.post("/auth/register", json={**credentials, "display_name": "Tester"})).status_code == 202
             assert (await client.post("/auth/login", json=credentials)).status_code == 200
             assert not await eligibility.eligible(db, user)
-            db.get.return_value = SimpleNamespace(is_adult=True, provider=age_verification.PROVIDER)
+            db.get.return_value = SimpleNamespace(is_adult=True, provider=eligibility.HostedAgeAssurance.name)
             assert await eligibility.eligible(db, user)
-            monkeypatch.setattr(identity, "settings", hosted_settings())
-            assert (await client.post("/auth/login", json=credentials)).status_code == 403
-            assert not await eligibility.eligible(db, user)
+            assert (await client.post("/auth/resend", json={"email": credentials["email"]})).status_code == 404
 
     monkeypatch.setitem(main.app.dependency_overrides, identity.database, test_database)
     asyncio.run(exercise())
@@ -166,9 +159,9 @@ def test_temporary_production_signup_and_login_skip_email_but_require_adult_proo
     assert user.email_verified_at is None
 
 
-def test_hosted_age_check_is_separate_from_public_verification(monkeypatch):
+def test_hosted_age_check_works_before_and_after_public_calls_are_enabled(monkeypatch):
     settings = hosted_settings(public_conversations=False, enable_conversations=False, enable_matchmaking=False,
-                               enable_private_rooms=False, enable_hosted_test_age_check=True)
+                               enable_private_rooms=False)
     monkeypatch.setattr(eligibility, "settings", settings)
     monkeypatch.setattr(eligibility, "throttle", AsyncMock())
     user = SimpleNamespace(id=uuid4(), status="active", email_verified_at=object())
@@ -182,7 +175,10 @@ def test_hosted_age_check_is_separate_from_public_verification(monkeypatch):
         db.get.return_value = SimpleNamespace(is_adult=True, provider=provider.name)
         assert await eligibility.eligible(db, user)
         monkeypatch.setattr(eligibility, "settings", hosted_settings())
-        assert eligibility.assurance_provider() is None
+        assert await eligibility.eligible(db, user)
+        db.get.return_value = SimpleNamespace(is_adult=False, provider=provider.name)
+        assert not await eligibility.eligible(db, user)
+        db.get.return_value = SimpleNamespace(is_adult=True, provider=eligibility.DevelopmentAgeAssurance.name)
         assert not await eligibility.eligible(db, user)
 
     asyncio.run(exercise())
@@ -194,7 +190,7 @@ def test_resend_email_uses_https_with_legacy_smtp_key(monkeypatch):
     send = MagicMock()
     monkeypatch.setattr(identity, "urlopen", send)
 
-    identity.send_mail("recipient@example.net", "sample-token", "verify")
+    identity.send_password_reset("recipient@example.net", "sample-token")
 
     request = send.call_args.args[0]
     assert request.full_url == "https://api.resend.com/emails"
@@ -203,7 +199,7 @@ def test_resend_email_uses_https_with_legacy_smtp_key(monkeypatch):
     message = json.loads(request.data)
     assert message["from"] == config.smtp_sender
     assert message["to"] == ["recipient@example.net"]
-    assert f"{config.web_origin}/account/verify#sample-token" in message["text"]
+    assert f"{config.web_origin}/account/reset#sample-token" in message["text"]
 
 
 def test_resend_rejection_returns_retryable_error_without_logging_email_details(monkeypatch, caplog):
@@ -215,34 +211,13 @@ def test_resend_rejection_returns_retryable_error_without_logging_email_details(
     user = SimpleNamespace(id=uuid4(), email="recipient@example.net")
 
     with pytest.raises(HTTPException, match="Email delivery is temporarily unavailable") as exc:
-        asyncio.run(identity.issue_account_link(db, user, "verify"))
+        asyncio.run(identity.issue_password_reset(db, user))
 
     assert exc.value.status_code == 503
     assert "provider status 403" in caplog.text
     assert "private provider details" not in caplog.text
     assert user.email not in caplog.text
     assert config.resend_api_key not in caplog.text
-
-
-def test_age_decision_requires_account_binding_and_an_approved_document_birth_date():
-    session, user = uuid4(), uuid4()
-    today = date(2026, 11, 16)
-    verified = {
-        "id": str(session), "vendorData": str(user), "status": "approved", "code": 9001,
-        "person": {"dateOfBirth": "2008-11-16"},
-    }
-    decision = {"verification": verified}
-    assert age_verification.parse_decision(decision, session, user, today) == "verified"
-    assert age_verification.parse_decision({"verification": None}, session, user, today) == "pending"
-    with pytest.raises(HTTPException):
-        age_verification.parse_decision(decision, session, uuid4(), today)
-    verified["person"]["dateOfBirth"] = "2008-11-17"
-    assert age_verification.parse_decision(decision, session, user, today) == "underage"
-    verified["person"] = None
-    with pytest.raises(HTTPException):
-        age_verification.parse_decision(decision, session, user, today)
-    assert age_verification.can_redirect("https://alchemy.veriff.com/v/example")
-    assert not age_verification.can_redirect("https://alchemy.veriff.com.attacker.example/v/example")
 
 
 def test_room_cleanup_retries_failed_cloud_revocation_before_delete(monkeypatch):
