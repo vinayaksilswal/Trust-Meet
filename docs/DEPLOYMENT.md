@@ -18,6 +18,14 @@ The repository root defines one Vercel project with two HTTP services and a back
 
 [Resend SMTP](https://resend.com/changelog/smtp-service) · [LiveKit Cloud connection setup](https://docs.livekit.io/intro/basics/connect/) · [Veriff sessions](https://devdocs.veriff.com/apidocs/v1sessions)
 
+## Cloudflare RealtimeKit
+
+1. Create an account at [Cloudflare](https://dash.cloudflare.com/sign-up) and create a RealtimeKit app in the dashboard. Use a separate app for staging. Copy the Cloudflare account ID and the RealtimeKit app ID. Create a custom API token with the account-level **Realtime Admin** permission scoped to that account. See the [RealtimeKit quickstart](https://developers.cloudflare.com/realtime/realtimekit/quickstart/).
+2. In the RealtimeKit app, create `trust_meet_video` (video and audio), `trust_meet_audio` (voice and no camera), and `trust_meet_text` (no camera or microphone). Enable automatic admission in Cloudflare so Trust Meet's own admission rules apply. Use participant presets without moderation, screen sharing, recording, transcription, or connected-meeting privileges. See [RealtimeKit presets](https://developers.cloudflare.com/realtime/realtimekit/concepts/preset/).
+3. Set `MEDIA_PROVIDER=realtimekit`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_REALTIMEKIT_APP_ID`, and `CLOUDFLARE_API_TOKEN` on the API and maintenance worker. Keep the token server-side. If the preset names differ, update the three `REALTIMEKIT_*_PRESET` variables in the hosted example. Apply migration `0006` before activating RealtimeKit.
+4. Disable new calls and drain old media sessions before changing media provider or RealtimeKit app ID. Keep the previous media credentials available until all sessions have closed. Turn off `ENABLE_HOSTED_TEST_AGE_CHECK` and `PRODUCTION_SKIP_EMAIL_VERIFICATION` before public traffic. The public access configuration still needs Veriff, verified PostgreSQL and Redis TLS, and working email verification.
+5. On staging, verify the video, voice and text presets using two browsers on different networks. Test host mute, removal, closing, blocks, suspension, and replay of original and refreshed participant tokens. Verify the worker retries provider errors, and check the Cloudflare dashboard for usage and unexpected sessions before enabling public traffic.
+
 ## Local Services test
 
 Start the database, Redis, test mail and LiveKit dependencies, apply migrations, and run `npx vercel dev --local` from the repository root with development settings. Verify that `/api/auth/options` and `/api/ready` respond through the frontend. Use normal localhost development settings in `.env`. Vercel's production binding and provider credentials belong in the hosted environment.

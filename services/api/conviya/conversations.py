@@ -12,10 +12,11 @@ from pydantic import BaseModel
 from sqlalchemy import or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 
+from . import realtimekit
 from .config import settings
 from .eligibility import eligible, require_eligible
 from .identity import CurrentUser, Db, TokenInput
-from .models import Block, Conversation, Participant, Report, User
+from .models import Block, Conversation, Participant, RealtimeMeeting, Report, User
 from .runtime import digest, new_token, now, require_maintenance, throttle
 
 
@@ -167,7 +168,28 @@ async def close_call_media(db: Db, call_id: UUID):
     users = list(await db.scalars(select(Participant.user_id).where(
         Participant.conversation_id == call_id, Participant.media_granted_at.is_not(None)
     )))
-    return await close_media(room_name(call_id), users)
+    return await close_configured_media(db, room_name(call_id), users)
+
+
+async def close_ended_realtimekit_call(db: Db, call: Conversation):
+    if settings.media_provider == "realtimekit" and not call.media_closed_at:
+        if await close_call_media(db, call.id):
+            call.media_closed_at = now()
+        await db.commit()
+
+
+async def close_configured_media(db: Db, name: str, participants: list[UUID]):
+    if settings.media_provider == "realtimekit":
+        meeting = await db.get(RealtimeMeeting, name)
+        return await realtimekit.close(db, meeting) if meeting else not participants
+    return await close_media(name, participants)
+
+
+async def revoke_configured_participant(db: Db, name: str, user_id: UUID):
+    if settings.media_provider == "realtimekit":
+        meeting = await db.get(RealtimeMeeting, name)
+        return await realtimekit.remove(db, meeting, user_id) if meeting else False
+    return await revoke_participant(name, user_id)
 
 
 @router.get("/current")
@@ -258,12 +280,18 @@ async def media_token(call_id: UUID, user: EligibleUser, db: Db):
         raise HTTPException(403, "This conversation is unavailable.")
     if not await eligible(db, one) or not await eligible(db, two):
         raise HTTPException(403, "This conversation is unavailable.")
-    grant = issue_media_grant(room_name(call.id), str(user.id), call.mode, call.expires_at)
+    grant = await configured_media_grant(db, room_name(call.id), user, call.mode, call.expires_at)
     member = first if first.user_id == user.id else second
     if member.media_granted_at is None:
         member.media_granted_at = now()
-        await db.commit()
+    await db.commit()
     return grant
+
+
+async def configured_media_grant(db: Db, name: str, user: User, mode: Mode, expires_at, display_name: str | None = None):
+    if settings.media_provider == "realtimekit":
+        return await realtimekit.grant(db, name, user.id, mode, expires_at, display_name or user.display_name)
+    return issue_media_grant(name, str(user.id), mode, expires_at, display_name)
 
 
 def issue_media_grant(name: str, user: str, mode: Mode, expires_at, display_name: str | None = None):
@@ -288,6 +316,7 @@ async def end(call_id: UUID, user: CurrentUser, db: Db):
     if call.state != "ended":
         await finish(db, call)
     await db.commit()
+    await close_ended_realtimekit_call(db, call)
 
 
 @router.post("/{call_id}/block", status_code=204)
@@ -301,7 +330,11 @@ async def block(call_id: UUID, user: CurrentUser, db: Db):
     active = await current_call(db, user.id)
     if active and any(person.id == other.id for _, person in await members(db, active)):
         await finish(db, active)
+    else:
+        active = None
     await db.commit()
+    if active:
+        await close_ended_realtimekit_call(db, active)
 
 
 @router.post("/{call_id}/report", status_code=202)

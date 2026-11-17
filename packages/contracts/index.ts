@@ -16,7 +16,10 @@ export const conversation = z.object({
 export type Conversation = z.infer<typeof conversation>;
 export const token = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 export const invite = z.object({ id: z.uuid(), token });
-export const media = z.object({ url: z.string(), token: z.string() });
+export const media = z.union([
+  z.object({ provider: z.literal("realtimekit"), token: z.string() }),
+  z.object({ url: z.string(), token: z.string(), provider: z.literal("livekit").default("livekit") }),
+]);
 export const message = z.object({ message: z.string() });
 export const credentials = z.object({
   email: z.email("Enter a valid email address."),

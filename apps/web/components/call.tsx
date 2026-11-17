@@ -10,6 +10,7 @@ import { Flag, Mic, MicOff, PhoneOff, Video, VideoOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { api, errorMessage } from "@/lib/client";
+import { connectRealtimeKit, type CallControls } from "./realtimekit-call";
 import { RandomStudio, RandomTile } from "./random-studio";
 
 const chatTopic = "conviya.chat";
@@ -41,7 +42,7 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false, autoSt
   const [draft, setDraft] = useState("");
   const [connectedPeer, setConnectedPeer] = useState(false);
   const [clock, setClock] = useState(Date.now);
-  const room = useRef<Room | null>(null);
+  const controls = useRef<CallControls | null>(null);
   const remote = useRef<HTMLDivElement>(null);
   const preview = useRef<HTMLDivElement>(null);
   const audio = useRef<HTMLDivElement>(null);
@@ -58,7 +59,7 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false, autoSt
   useEffect(() => {
     const controller = new AbortController();
     const instance = new Room({ adaptiveStream: true, dynacast: true });
-    room.current = instance;
+    let active: CallControls | undefined;
     setConnection(ConnectionState.Connecting);
     setMic(false);
     setCamera(false);
@@ -111,13 +112,29 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false, autoSt
       try {
         const credential = await api(callPath + "/media", media, {}, controller.signal);
         if (controller.signal.aborted) return;
-        await instance.connect(credential.url, credential.token, { autoSubscribe: call.mode !== "text" });
-        if (controller.signal.aborted) { await instance.disconnect(); return; }
-        updatePeers();
+        if (credential.provider === "realtimekit") {
+          active = await connectRealtimeKit(credential.token, call.mode, controller.signal, {
+            remote: remote.current, preview: preview.current, setConnection, setMic, setCamera, setConnectedPeer,
+            setAudioBlocked, setChat,
+          });
+        } else {
+          await instance.connect(credential.url, credential.token, { autoSubscribe: call.mode !== "text" });
+          active = {
+            setMic: enabled => instance.localParticipant.setMicrophoneEnabled(enabled),
+            setCamera: enabled => instance.localParticipant.setCameraEnabled(enabled),
+            send: text => instance.localParticipant.publishData(new TextEncoder().encode(text), { reliable: true, topic: chatTopic }),
+            startAudio: () => instance.startAudio(),
+            setSpeaker: device => instance.switchActiveDevice("audiooutput", device),
+            close: () => instance.disconnect(),
+          };
+          updatePeers();
+        }
+        if (controller.signal.aborted) { await active.close(); return; }
+        controls.current = active;
         if (autoStartMedia && retry === 0 && call.mode !== "text") {
           const results = await Promise.allSettled([
-            instance.localParticipant.setMicrophoneEnabled(true),
-            ...(call.mode === "video" ? [instance.localParticipant.setCameraEnabled(true)] : []),
+            active.setMic(true),
+            ...(call.mode === "video" ? [active.setCamera(true)] : []),
           ]);
           if (controller.signal.aborted) return;
           setMic(results[0].status === "fulfilled");
@@ -134,7 +151,7 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false, autoSt
         if (controller.signal.aborted) return;
         setConnection(ConnectionState.Disconnected);
         setError(errorMessage(cause));
-        await instance.disconnect();
+        await (active?.close() ?? instance.disconnect()).catch(() => undefined);
       } finally {
         if (!controller.signal.aborted) setControlBusy(false);
       }
@@ -145,8 +162,8 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false, autoSt
       controller.abort();
       instance.removeAllListeners();
       for (const element of elements) element.remove();
-      if (room.current === instance) room.current = null;
-      void instance.disconnect();
+      if (controls.current === active) controls.current = null;
+      void (active?.close() ?? instance.disconnect()).catch(() => undefined);
     };
   }, [autoStartMedia, callPath, call.mode, retry]);
 
@@ -155,17 +172,17 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false, autoSt
   }, [chat]);
 
   async function toggle(kind: "mic" | "camera") {
-    const instance = room.current;
+    const instance = controls.current;
     if (!instance || !connected) return;
     setControlBusy(true);
     setError("");
     try {
       if (kind === "mic") {
-        await instance.localParticipant.setMicrophoneEnabled(!mic);
-        if (room.current === instance) setMic(!mic);
+        await instance.setMic(!mic);
+        if (controls.current === instance) setMic(!mic);
       } else {
-        await instance.localParticipant.setCameraEnabled(!camera);
-        if (room.current === instance) setCamera(!camera);
+        await instance.setCamera(!camera);
+        if (controls.current === instance) setCamera(!camera);
       }
     } catch {
       setError(kind === "mic" ? "Microphone unavailable. Check browser permissions and your input device." :
@@ -174,11 +191,11 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false, autoSt
   }
 
   async function send() {
-    const instance = room.current;
+    const instance = controls.current;
     const parsed = chatMessage.safeParse(draft);
     if (!instance || !connected || !connectedPeer || !parsed.success) return;
     try {
-      await instance.localParticipant.publishData(new TextEncoder().encode(parsed.data), { reliable: true, topic: chatTopic });
+      await instance.send(parsed.data);
       setChat(items => [...items.slice(-199), { mine: true, text: parsed.data }]);
       setDraft(value => value === draft ? "" : value);
     } catch { setError("Message could not be sent. Try again."); }
@@ -209,7 +226,7 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false, autoSt
         {camera ? <VideoOff size={17} /> : <Video size={17} />}{camera ? "Disable camera" : "Enable camera"}
       </button>}
       {call.mode !== "text" && audioBlocked && <button className="button button-outline" onClick={() => {
-        void room.current?.startAudio().catch(() => setError("Audio playback is unavailable."));
+        void controls.current?.startAudio().then(() => setAudioBlocked(false)).catch(() => setError("Audio playback is unavailable."));
       }}>Enable audio playback</button>}
       {connection === ConnectionState.Disconnected && seconds > 0 && <button className="button button-outline" onClick={() => setRetry(value => value + 1)}>Reconnect</button>}
       <button className="button button-danger" disabled={busy} onClick={onEnd}><PhoneOff size={17} /> {group ? "Leave call" : "End conversation"}</button>
@@ -218,7 +235,7 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false, autoSt
     {speakers.length > 0 && typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype &&
       <label className="field" style={{ marginTop: 10 }}>Speaker
         <select defaultValue="" onChange={event => {
-          void room.current?.switchActiveDevice("audiooutput", event.target.value).catch(() => setError("Could not change speaker."));
+          void controls.current?.setSpeaker(event.target.value).catch(() => setError("Could not change speaker."));
         }}><option value="" disabled>Choose an output</option>
           {speakers.map((speaker, index) => <option key={speaker.deviceId} value={speaker.deviceId}>{speaker.label || `Speaker ${index + 1}`}</option>)}</select>
       </label>}

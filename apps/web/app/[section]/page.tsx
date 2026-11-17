@@ -14,7 +14,7 @@ const sections = new Map([
   ] }],
   ["privacy", { title: "Privacy", lines: [
     "Trust Meet stores account details, eligibility outcomes, and conversation timestamps. Online age verification takes place with Veriff. Trust Meet stores the result and discards the verified birth date after checking your age.",
-    "LiveKit carries media and chat messages between participants. Trust Meet does not enable server-side session recording or store chat history in this version.",
+    "The configured media provider, LiveKit or Cloudflare RealtimeKit, carries media and live messages between participants. Trust Meet does not enable session recording or store chat history.",
   ] }],
   ["wellness", { title: "Mental Wellness" }],
   ["business", { title: "Business Connect" }],

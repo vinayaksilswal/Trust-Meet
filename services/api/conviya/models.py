@@ -117,6 +117,21 @@ class Block(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=sa.func.now())
 
 
+class RealtimeMeeting(Base):
+    __tablename__ = "realtime_meetings"
+
+    name: Mapped[str] = mapped_column(sa.String(64), primary_key=True)
+    meeting_id: Mapped[UUID] = mapped_column(unique=True)
+
+
+class RealtimeParticipant(Base):
+    __tablename__ = "realtime_participants"
+
+    meeting_name: Mapped[str] = mapped_column(sa.ForeignKey("realtime_meetings.name", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(primary_key=True)
+    participant_id: Mapped[UUID]
+
+
 class Report(Base):
     __tablename__ = "reports"
     __table_args__ = (sa.UniqueConstraint("reporter_id", "conversation_id", name="one_report_per_conversation"),)

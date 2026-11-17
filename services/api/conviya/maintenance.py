@@ -5,12 +5,12 @@ import logging
 from sqlalchemy import delete, func, select, update
 
 from .config import settings
-from .conversations import close_call_media, close_media, finish, lock_transitions, revoke_participant
+from .conversations import close_call_media, close_configured_media, finish, lock_transitions, revoke_configured_participant
 from .models import AccountToken, AgeVerificationSession, Conversation, LoginSession
 from .rooms import media_room, room_participants
 from .rooms_models import PrivateRoom, RoomInvitation, RoomMember
 from .event_loop import factory
-from .runtime import MAINTENANCE_KEY, Sessions, cache, engine, now
+from .runtime import MAINTENANCE_KEY, Sessions, cache, database_sqlstate, engine, now
 
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ async def maintain():
             if settings.public_conversations:
                 await cache.set(MAINTENANCE_KEY, "1", ex=90)
         except Exception as err:
-            logger.error("Conversation maintenance failed (%s)", type(err).__name__)
+            logger.error("Conversation maintenance failed (%s, SQLSTATE %s)", type(err).__name__, database_sqlstate(err))
         await asyncio.sleep(3)
 
 
@@ -75,7 +75,7 @@ async def sweep():
         ).order_by(PrivateRoom.ends_at).limit(5).with_for_update(skip_locked=True))).all()
         for room in closed:
             boundary = room.closed_at or room.ends_at
-            if await close_media(media_room(room.id), await room_participants(db, room.id)) and (
+            if await close_configured_media(db, media_room(room.id), await room_participants(db, room.id)) and (
                 settings.public_conversations or boundary <= now() - timedelta(seconds=35)
             ):
                 room.media_closed_at = now()
@@ -90,7 +90,7 @@ async def sweep():
             PrivateRoom.closed_at.is_(None), PrivateRoom.ends_at > now(),
         ).order_by(RoomMember.updated_at).limit(5).with_for_update(of=RoomMember, skip_locked=True))).all()
         for member in removed:
-            if member.media_granted_at is None or await revoke_participant(media_room(member.room_id), member.user_id):
+            if member.media_granted_at is None or await revoke_configured_participant(db, media_room(member.room_id), member.user_id):
                 member.media_revoked_at = now()
             else:
                 member.media_retry_at = now() + timedelta(seconds=15)

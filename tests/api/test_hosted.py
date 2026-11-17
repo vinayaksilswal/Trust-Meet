@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date
+from datetime import date, timedelta
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -11,7 +11,9 @@ import httpx
 from pydantic import ValidationError
 
 from conviya.config import Settings
-from conviya import age_verification, conversations, eligibility, identity, main
+from conviya import age_verification, conversations, eligibility, identity, main, realtimekit
+from conviya.models import RealtimeMeeting, RealtimeParticipant
+from conviya.runtime import now
 from fastapi import HTTPException
 
 
@@ -46,6 +48,48 @@ def test_hosted_configuration_allows_only_guarded_media():
     ):
         with pytest.raises(ValidationError):
             hosted_settings(**change)
+
+
+def test_realtimekit_can_replace_livekit_in_hosted_configuration():
+    cloudflare = {"media_provider": "realtimekit", "cloudflare_account_id": uuid4().hex,
+                  "cloudflare_realtimekit_app_id": str(uuid4()), "livekit_ws_url": "ws://localhost:7880"}
+    with pytest.raises(ValidationError, match="Cloudflare account ID and API token"):
+        hosted_settings(**cloudflare)
+    assert hosted_settings(**cloudflare, cloudflare_api_token="test-token").media_provider == "realtimekit"
+
+
+def test_realtimekit_grants_refresh_and_revocation(monkeypatch):
+    cloud_meeting, cloud_participant, user = uuid4(), uuid4(), uuid4()
+    db = MagicMock(flush=AsyncMock(), delete=AsyncMock(), execute=AsyncMock())
+    db.get = AsyncMock(side_effect=[None, None])
+    send = AsyncMock(side_effect=[{"id": str(cloud_meeting)}, {"id": str(cloud_participant), "token": "first"}])
+    monkeypatch.setattr(realtimekit, "request", send)
+    expires_at = now() + timedelta(minutes=30)
+
+    async def exercise():
+        grant = await realtimekit.grant(db, "conviya-test", user, "video", expires_at, "Tester")
+        assert grant == {"provider": "realtimekit", "token": "first"}
+        meeting, participant = [call.args[0] for call in db.add.call_args_list]
+        assert isinstance(meeting, RealtimeMeeting) and meeting.meeting_id == cloud_meeting
+        assert isinstance(participant, RealtimeParticipant) and participant.participant_id == cloud_participant
+        body = send.await_args.args[2]
+        assert body["custom_participant_id"] == str(user)
+        assert body["preset_name"] == realtimekit.settings.realtimekit_video_preset
+        assert body["token"]["expires_on"] < expires_at.isoformat()
+
+        db.get.side_effect = [meeting, participant, participant, participant]
+        send.side_effect = [{"token": "second"}, realtimekit.RealtimeKitError(503), None, None]
+        refreshed = await realtimekit.grant(db, meeting.name, user, "video", expires_at, "Tester")
+        assert refreshed["token"] == "second"
+        assert send.await_args.args[:2] == ("POST", f"/{cloud_meeting}/participants/{cloud_participant}/token")
+        assert not await realtimekit.remove(db, meeting, user)
+        db.delete.assert_not_awaited()
+        assert await realtimekit.remove(db, meeting, user)
+        db.delete.assert_awaited_once_with(participant)
+        assert await realtimekit.close(db, meeting)
+        send.assert_awaited_with("PATCH", f"/{cloud_meeting}", {"status": "INACTIVE"})
+
+    asyncio.run(exercise())
 
 
 def test_hosted_gateway_blocks_direct_api_traffic(monkeypatch):

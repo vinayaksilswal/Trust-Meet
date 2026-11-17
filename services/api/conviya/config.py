@@ -1,6 +1,7 @@
 from ipaddress import IPv4Address, IPv4Network
 from typing import Literal
 from urllib.parse import parse_qs, urlsplit
+from uuid import UUID
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -36,6 +37,13 @@ class Settings(BaseSettings):
     livekit_ws_url: str = "ws://localhost:7880"
     livekit_api_key: str = "devkey"
     livekit_api_secret: str = "secret"
+    media_provider: Literal["livekit", "realtimekit"] = "livekit"
+    cloudflare_account_id: str = ""
+    cloudflare_realtimekit_app_id: str = ""
+    cloudflare_api_token: str = ""
+    realtimekit_video_preset: str = "trust_meet_video"
+    realtimekit_audio_preset: str = "trust_meet_audio"
+    realtimekit_text_preset: str = "trust_meet_text"
 
     @property
     def resend_key(self) -> str:
@@ -51,6 +59,17 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def enforce_launch_gates(self):
+        if self.media_provider == "realtimekit":
+            try:
+                account_id = UUID(self.cloudflare_account_id)
+                UUID(self.cloudflare_realtimekit_app_id)
+            except ValueError as exc:
+                raise ValueError("RealtimeKit requires valid Cloudflare account and app IDs.") from exc
+            if account_id.hex != self.cloudflare_account_id.lower() or not self.cloudflare_api_token.strip():
+                raise ValueError("RealtimeKit requires a Cloudflare account ID and API token.")
+            presets = {self.realtimekit_video_preset, self.realtimekit_audio_preset, self.realtimekit_text_preset}
+            if len(presets) != 3 or not all(preset.strip() for preset in presets):
+                raise ValueError("RealtimeKit requires separate text, audio and video presets.")
         if self.lan_skip_email_verification and self.environment != "lan":
             raise ValueError("Skipping email verification is available only in LAN testing.")
         if self.production_skip_email_verification and self.environment != "production":
@@ -79,7 +98,7 @@ class Settings(BaseSettings):
                         or not self.veriff_api_key or not self.veriff_shared_secret):
                     raise ValueError("Public conversations require a Veriff identity verification integration.")
                 ws = urlsplit(self.livekit_ws_url)
-                if (ws.scheme != "wss" or not ws.hostname or not ws.hostname.endswith(".livekit.cloud")
+                if self.media_provider == "livekit" and (ws.scheme != "wss" or not ws.hostname or not ws.hostname.endswith(".livekit.cloud")
                         or ws.netloc != ws.hostname or ws.path or ws.query or ws.fragment
                         or self.livekit_api_url != f"https://{ws.hostname}"
                         or len(self.livekit_api_secret) < 32 or self.livekit_api_key in {"", "devkey"}):

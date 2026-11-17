@@ -14,7 +14,10 @@ from redis.exceptions import RedisError
 from . import age_verification, conversations, eligibility, identity, matchmaking, rooms
 from .config import settings
 from .maintenance import maintain
-from .runtime import cache, engine, require_maintenance
+from .runtime import cache, database_sqlstate, engine, require_maintenance
+
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -61,7 +64,7 @@ async def validation_error(request: Request, exc: RequestValidationError):
 
 @app.exception_handler(SQLAlchemyError)
 async def database_error(request: Request, exc: SQLAlchemyError):
-    logging.getLogger(__name__).error("Database operation failed (%s)", type(exc).__name__)
+    logger.error("Database operation failed (%s, SQLSTATE %s)", type(exc).__name__, database_sqlstate(exc))
     return JSONResponse({"detail": "The service is temporarily unavailable."}, 503)
 
 
@@ -75,10 +78,18 @@ async def ready():
     try:
         async with engine.connect() as connection:
             await connection.execute(text("SELECT version_num FROM alembic_version"))
+            if settings.media_provider == "realtimekit":
+                await connection.execute(text("SELECT 1 FROM realtime_meetings LIMIT 1"))
+                await connection.execute(text("SELECT 1 FROM realtime_participants LIMIT 1"))
+    except (SQLAlchemyError, OSError) as exc:
+        logger.error("PostgreSQL readiness check failed (%s, SQLSTATE %s)", type(exc).__name__, database_sqlstate(exc))
+        return JSONResponse({"status": "unavailable"}, 503)
+    try:
         await cache.ping()
         if settings.enable_conversations:
             await require_maintenance()
-    except (SQLAlchemyError, RedisError, OSError):
+    except (RedisError, OSError) as exc:
+        logger.error("Redis readiness check failed (%s)", type(exc).__name__)
         return JSONResponse({"status": "unavailable"}, 503)
     return {"status": "ready"}
 

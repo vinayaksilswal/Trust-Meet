@@ -6,6 +6,7 @@ import secrets
 from fastapi import HTTPException, Request
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -32,6 +33,12 @@ return count
 async def database():
     async with Sessions() as session:
         yield session
+
+
+def database_sqlstate(error: Exception) -> str | None:
+    if isinstance(error, DBAPIError):
+        return getattr(error.orig, "sqlstate", None)
+    return None
 
 
 def now():

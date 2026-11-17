@@ -10,11 +10,13 @@ from pydantic import AwareDatetime, BaseModel, Field, StringConstraints
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 
+from . import realtimekit
 from .config import settings
-from .conversations import EligibleUser, Mode, ReportInput, blocked, close_media, issue_media_grant, livekit, revoke_participant
+from .conversations import (EligibleUser, Mode, ReportInput, blocked, close_configured_media, configured_media_grant,
+                            livekit, revoke_configured_participant)
 from .eligibility import eligible
 from .identity import Db, Token, hash_slots, hasher
-from .models import User
+from .models import RealtimeMeeting, User
 from .rooms_models import PrivateRoom, RoomInvitation, RoomMember, RoomReport
 from .runtime import digest, new_token, now, require_maintenance, throttle
 
@@ -233,10 +235,10 @@ async def media(id: UUID, db: Db, user: EligibleUser):
     host = await db.get(User, room.owner_id)
     if not host or not await eligible(db, host) or await blocked(db, user.id, room.owner_id):
         raise HTTPException(403, "The room is unavailable.")
-    grant = issue_media_grant(media_room(id), str(user.id), room.mode, room.ends_at, user.display_name)
+    grant = await configured_media_grant(db, media_room(id), user, room.mode, room.ends_at, user.display_name)
     if member.media_granted_at is None:
         member.media_granted_at = now()
-        await db.commit()
+    await db.commit()
     return grant
 
 
@@ -251,7 +253,7 @@ async def remove(id: UUID, member_id: UUID, db: Db, user: EligibleUser):
     member.state, member.updated_at = "removed", now()
     member.media_retry_at = now() + timedelta(seconds=5)
     await db.commit()
-    if member.media_granted_at is None or await revoke_participant(media_room(id), member_id):
+    if member.media_granted_at is None or await revoke_configured_participant(db, media_room(id), member_id):
         member.media_revoked_at = now()
         await db.commit()
     else:
@@ -266,6 +268,12 @@ async def mute(id: UUID, member_id: UUID, db: Db, user: EligibleUser):
     member = await db.get(RoomMember, (id, member_id))
     if not member or member.state != "approved" or member_id == user.id:
         raise HTTPException(404, "Participant not found.")
+    if settings.media_provider == "realtimekit":
+        meeting = await db.get(RealtimeMeeting, media_room(id))
+        if not meeting:
+            raise HTTPException(409, "The participant could not be muted.")
+        await realtimekit.mute(meeting, member_id)
+        return
     identity = api.RoomParticipantIdentity(room=media_room(id), identity=str(member_id))
     try:
         async with livekit() as client:
@@ -288,8 +296,12 @@ async def close(id: UUID, db: Db, user: EligibleUser):
     room, _ = await read_room(db, id, user, lock=True, host=True)
     room.closed_at = room.closed_at or now()
     await db.commit()
-    if not settings.public_conversations:
-        await close_media(media_room(id), [])
+    if settings.media_provider == "realtimekit":
+        if await close_configured_media(db, media_room(id), []):
+            room.media_closed_at = now()
+        await db.commit()
+    elif not settings.public_conversations:
+        await close_configured_media(db, media_room(id), [])
 
 
 async def room_participants(db: Db, room_id: UUID):
