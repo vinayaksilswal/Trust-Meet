@@ -1,6 +1,7 @@
 import asyncio
 from datetime import timedelta
 import logging
+from time import monotonic
 
 from sqlalchemy import delete, func, select, update
 
@@ -17,11 +18,13 @@ logger = logging.getLogger(__name__)
 
 
 async def maintain():
+    next_heartbeat = 0.0
     while True:
         try:
             await sweep()
-            if settings.public_conversations:
+            if settings.public_conversations and monotonic() >= next_heartbeat:
                 await cache.set(MAINTENANCE_KEY, "1", ex=90)
+                next_heartbeat = monotonic() + 30
         except Exception as err:
             logger.error("Conversation maintenance failed (%s, SQLSTATE %s)", type(err).__name__, database_sqlstate(err))
         await asyncio.sleep(3)
