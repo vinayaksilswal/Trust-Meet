@@ -94,7 +94,7 @@ export function Connect() {
   }
 
   const action = useMutation({
-    mutationFn: async (verb: "invite" | "accept-invite" | "accept-match" | "end" | "next" | "cancel" | "block" | "search") => {
+    mutationFn: async (verb: "invite" | "accept-invite" | "accept-match" | "end" | "next" | "cancel" | "switch-to-test" | "block" | "search") => {
       if (verb === "search") {
         const partner = testMode ? testPartner.trim() : "";
         if (!searching && testMode && !z.string().email().safeParse(partner).success) {
@@ -117,10 +117,11 @@ export function Connect() {
         sessionStorage.removeItem("conviya-invitation");
         setInviteToken("");
         setAccepting(false);
-      } else if (verb === "cancel" && searching) {
-        setSearching(null);
+      } else if ((verb === "cancel" || verb === "switch-to-test") && searching && !active) {
         await client.cancelQueries({ queryKey: ["queue", profile?.id] });
         await api("/matchmaking/cancel", z.null(), { search_id: searching.search_id, mode: searching.mode });
+        setSearching(null);
+        if (verb === "switch-to-test") setTestMode(true);
       } else if (active) {
         if (verb === "accept-match") {
           if (searching?.mode === active.mode) setAutoMediaFor(active.id);
@@ -138,6 +139,8 @@ export function Connect() {
     },
   });
 
+  const testSearch = !!searching?.test_partner_email;
+  const restartTest = testSearch && searchEnded(queue.error);
   const modeOnStage = active?.mode ?? searching?.mode ?? mode;
   const controls = <>
       {account.isPending ? <Notice>Loading your account…</Notice> :
@@ -158,16 +161,20 @@ export function Connect() {
            }}><Link2 size={16} />{copied ? "Link copied" : "Copy invitation"}</button></div>}
          <div className="action-row random-entry-actions">
            {active.partner && !active.consented && <button className="button button-primary" disabled={action.isPending} onClick={() => action.mutate("accept-match")}>Accept match</button>}
-           {searching && <button className="button button-outline" disabled={action.isPending} onClick={() => action.mutate("next")}>Skip and find next</button>}
+           {searching && <button className="button button-outline" disabled={action.isPending} onClick={() => action.mutate("next")}>{testSearch ? "Start a fresh test match" : "Skip and find next"}</button>}
            <button className="button button-danger" disabled={action.isPending} onClick={() => action.mutate("end")}>{active.partner ? "Decline match" : "Cancel invitation"}</button>
          </div></> :
        searching ? <>
-         <h2>{searchEnded(queue.error) ? "Search ended" : searching.test_partner_email ? "Waiting for your test partner" : "Looking for someone"}</h2>
-         {!queue.isError && <Notice>{searching.test_partner_email
+         <h2>{restartTest ? "Ready to test again" : searchEnded(queue.error) ? "Search ended" : testSearch ? "Waiting for your test partner" : "Looking for someone"}</h2>
+         {!queue.isError && <Notice>{testSearch
            ? "Ask your partner to enter your email and choose the same conversation mode."
-           : "No conversation yet. You can keep waiting or leave the queue."}</Notice>}
-         {queue.isError && <Notice error>{errorMessage(queue.error)} <button disabled={action.isPending} onClick={() => searchEnded(queue.error) ? action.mutate("search") : queue.refetch()}>{searchEnded(queue.error) ? "Start a new search" : "Try again"}</button></Notice>}
-         <button className="button button-outline" disabled={action.isPending} onClick={() => action.mutate("cancel")}>Leave queue</button>
+           : "Regular matching waits five minutes before pairing you with the same person again."}</Notice>}
+         {restartTest ? <button className="button button-primary" disabled={action.isPending} onClick={() => action.mutate("search")}>Find same test partner</button>
+           : queue.isError && <Notice error>{errorMessage(queue.error)} <button disabled={action.isPending} onClick={() => searchEnded(queue.error) ? action.mutate("search") : queue.refetch()}>{searchEnded(queue.error) ? "Start a new search" : "Try again"}</button></Notice>}
+         <div className="action-row">
+           {!testSearch && <button className="button button-primary" disabled={action.isPending} onClick={() => action.mutate("switch-to-test")}>Switch to partner test</button>}
+           <button className="button button-outline" disabled={action.isPending} onClick={() => action.mutate("cancel")}>{restartTest ? "Back to matching options" : "Leave queue"}</button>
+         </div>
        </> : <>
          <div className="random-entry">
          <fieldset className="mode-picker"><legend>Conversation mode</legend>
@@ -212,12 +219,12 @@ export function Connect() {
     {active?.state === "active" ? <>
       <Call key={active.id} call={active} busy={action.isPending} autoStartMedia={autoMediaFor === active.id}
         onEnd={() => action.mutate("end")} onBlock={() => action.mutate("block")}
-        onNext={searching ? () => action.mutate("next") : undefined} />
+        onNext={searching ? () => action.mutate("next") : undefined} nextLabel={testSearch ? "Match again" : undefined} />
       {action.isError && <Notice error>{errorMessage(action.error)}</Notice>}
     </> : <RandomStudio side={<WaitingChat />} controls={controls}>
       <RandomTile name={active?.partner ?? "Your match"} mode={modeOnStage} hint={
         active?.state === "invited" ? "Waiting for the conversation to start" :
-        searchEnded(queue.error) ? "Ready for a new search" : searching ? "Finding someone to talk to…" :
+        searchEnded(queue.error) ? "Ready for a new search" : testSearch ? "Looking for your test partner…" : searching ? "Finding someone to talk to…" :
         modeOnStage === "video" ? "Your match’s video will appear here" :
         modeOnStage === "audio" ? "Your voice conversation starts here" : "Start a search to meet someone"
       } />

@@ -23,10 +23,11 @@ type Props = {
   onBlock?: () => void;
   group?: boolean;
   onNext?: () => void;
+  nextLabel?: string;
   autoStartMedia?: boolean;
 };
 
-export function Call({ call, busy, onEnd, onBlock, onNext, group = false, autoStartMedia = false }: Props) {
+export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", group = false, autoStartMedia = false }: Props) {
   const [connection, setConnection] = useState<ConnectionState>(ConnectionState.Connecting);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
@@ -230,7 +231,7 @@ export function Call({ call, busy, onEnd, onBlock, onNext, group = false, autoSt
       }}>Enable audio playback</button>}
       {connection === ConnectionState.Disconnected && seconds > 0 && <button className="button button-outline" onClick={() => setRetry(value => value + 1)}>Reconnect</button>}
       <button className="button button-danger" disabled={busy} onClick={onEnd}><PhoneOff size={17} /> {group ? "Leave call" : "End conversation"}</button>
-      {onNext && <button className="button button-outline" disabled={busy} onClick={onNext}>Next</button>}
+      {onNext && <button className="button button-outline" disabled={busy} onClick={onNext}>{nextLabel}</button>}
     </div>
     {speakers.length > 0 && typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype &&
       <label className="field" style={{ marginTop: 10 }}>Speaker
