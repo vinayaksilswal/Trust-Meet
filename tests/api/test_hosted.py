@@ -92,6 +92,25 @@ def test_realtimekit_grants_refresh_and_revocation(monkeypatch):
     asyncio.run(exercise())
 
 
+def test_realtimekit_preflight_checks_all_presets_and_limits_provider_requests(monkeypatch):
+    store = SimpleNamespace(get=AsyncMock(return_value=None), set=AsyncMock(return_value=True))
+    monkeypatch.setattr(realtimekit, "cache", store)
+    all_presets = [{"name": name} for name in (realtimekit.settings.realtimekit_video_preset,
+                   realtimekit.settings.realtimekit_audio_preset, realtimekit.settings.realtimekit_text_preset)]
+    request = AsyncMock(side_effect=[all_presets, all_presets[:2], realtimekit.RealtimeKitError(403)])
+    monkeypatch.setattr(realtimekit, "app_request", request)
+
+    async def exercise():
+        assert await realtimekit.preset_readiness() == "ready"
+        assert await realtimekit.preset_readiness() == "missing_presets"
+        assert await realtimekit.preset_readiness() == "unavailable"
+        store.get.return_value = "ready"
+        assert await realtimekit.preset_readiness() == "ready"
+        assert request.await_count == 3
+
+    asyncio.run(exercise())
+
+
 def test_hosted_gateway_blocks_direct_api_traffic(monkeypatch):
     config = hosted_settings()
     monkeypatch.setattr(main, "settings", config)

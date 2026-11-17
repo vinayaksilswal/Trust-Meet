@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from redis.exceptions import RedisError
 
-from . import age_verification, conversations, eligibility, identity, matchmaking, rooms
+from . import age_verification, conversations, eligibility, identity, matchmaking, realtimekit, rooms
 from .config import settings
 from .maintenance import maintain
 from .runtime import cache, database_sqlstate, engine, require_maintenance
@@ -86,11 +86,17 @@ async def ready():
         return JSONResponse({"status": "unavailable"}, 503)
     try:
         await cache.ping()
+        if settings.media_provider == "realtimekit":
+            media_status = await realtimekit.preset_readiness()
+            if settings.enable_conversations and media_status != "ready":
+                return JSONResponse({"status": "unavailable", "media": media_status}, 503)
         if settings.enable_conversations:
             await require_maintenance()
     except (RedisError, OSError) as exc:
         logger.error("Redis readiness check failed (%s)", type(exc).__name__)
         return JSONResponse({"status": "unavailable"}, 503)
+    if settings.media_provider == "realtimekit":
+        return {"status": "ready", "media": media_status}
     return {"status": "ready"}
 
 

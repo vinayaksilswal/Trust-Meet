@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import logging
+from typing import Literal
 from uuid import UUID
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
@@ -9,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import settings
 from .models import RealtimeMeeting, RealtimeParticipant
-from .runtime import now
+from .runtime import cache, digest, now
 
 
 logger = logging.getLogger(__name__)
@@ -21,8 +22,12 @@ class RealtimeKitError(Exception):
 
 
 async def request(method: str, path: str, payload: dict | None = None):
+    return await app_request(method, "/meetings" + path, payload)
+
+
+async def app_request(method: str, path: str, payload: dict | None = None):
     base = (f"https://api.cloudflare.com/client/v4/accounts/{settings.cloudflare_account_id}"
-            f"/realtime/kit/{UUID(settings.cloudflare_realtimekit_app_id)}/meetings")
+            f"/realtime/kit/{UUID(settings.cloudflare_realtimekit_app_id)}")
     try:
         async with ClientSession(timeout=ClientTimeout(total=4)) as client:
             async with client.request(method, base + path, json=payload, allow_redirects=False,
@@ -35,6 +40,29 @@ async def request(method: str, path: str, payload: dict | None = None):
                 return body.get("data")
     except (ClientError, TimeoutError, ValueError) as exc:
         raise RealtimeKitError() from exc
+
+
+async def preset_readiness() -> Literal["ready", "checking", "missing_presets", "unavailable"]:
+    presets = {settings.realtimekit_video_preset, settings.realtimekit_audio_preset, settings.realtimekit_text_preset}
+    configuration = "\n".join((settings.cloudflare_account_id, settings.cloudflare_realtimekit_app_id,
+                                settings.cloudflare_api_token, *sorted(presets)))
+    key = "conviya:realtimekit:readiness:" + digest(configuration)
+    cached = await cache.get(key)
+    if cached in {"ready", "missing_presets", "unavailable"}:
+        return cached
+    if not await cache.set(key + ":lock", "1", nx=True, ex=8):
+        return "checking"
+    try:
+        data = await app_request("GET", "/presets?per_page=100")
+        if not isinstance(data, list):
+            raise RealtimeKitError()
+        names = {row.get("name") for row in data if isinstance(row, dict) and isinstance(row.get("name"), str)}
+        result = "ready" if presets <= names else "missing_presets"
+    except RealtimeKitError as err:
+        logger.warning("RealtimeKit preflight failed (status %s)", err.status)
+        result = "unavailable"
+    await cache.set(key, result, ex=60)
+    return result
 
 
 async def grant(db: AsyncSession, name: str, user: UUID, mode: str, expires_at: datetime, display_name: str):
