@@ -15,11 +15,11 @@ from .config import settings
 
 if os.getenv("VERCEL") == "1" and settings.environment == "production":
     engine = create_async_engine(
-        settings.database_url, poolclass=NullPool,
+        settings.database_connection_url, poolclass=NullPool,
         connect_args={"connect_timeout": 5, "prepare_threshold": None},
     )
 else:
-    engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+    engine = create_async_engine(settings.database_connection_url, pool_pre_ping=True)
 Sessions = async_sessionmaker(engine, expire_on_commit=False)
 cache = Redis.from_url(settings.redis_url, decode_responses=True, socket_connect_timeout=3, socket_timeout=3)
 MAINTENANCE_KEY = "conviya:maintenance:alive"

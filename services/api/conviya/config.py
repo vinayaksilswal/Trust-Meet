@@ -3,8 +3,10 @@ from typing import Literal
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
+from certifi import where as ca_bundle
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import URL, make_url
 
 
 class Settings(BaseSettings):
@@ -38,6 +40,13 @@ class Settings(BaseSettings):
     realtimekit_video_preset: str = "trust_meet_video"
     realtimekit_audio_preset: str = "trust_meet_audio"
     realtimekit_text_preset: str = "trust_meet_text"
+
+    @property
+    def database_connection_url(self) -> URL:
+        url = make_url(self.database_url)
+        if url.query.get("sslmode") == "verify-full" and "sslrootcert" not in url.query:
+            return url.update_query_dict({"sslrootcert": ca_bundle()})
+        return url
 
     @property
     def resend_key(self) -> str:
