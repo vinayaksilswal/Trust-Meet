@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, EmailStr, Field, StringConstraints
 from redis.exceptions import RedisError
 from sqlalchemy import select
 from sqlalchemy.orm import aliased
@@ -28,10 +28,10 @@ local entry = previous and cjson.decode(previous)
 local requested = cjson.decode(ARGV[4])
 local current_search = entry and entry.search_id == requested.search_id
 if current_search then
-    if entry.mode ~= requested.mode or entry.session ~= requested.session then return false end
+    if (entry.queue or entry.mode) ~= requested.queue or entry.session ~= requested.session then return false end
 else
     if ARGV[1] ~= '1' or not redis.call('SET', KEYS[3], '1', 'NX', 'EX', 1800) then return false end
-    if entry then redis.call('ZREM', ARGV[5] .. entry.mode, ARGV[3]) end
+    if entry then redis.call('ZREM', ARGV[5] .. (entry.queue or entry.mode), ARGV[3]) end
 end
 local time = redis.call('TIME')
 local current = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
@@ -40,6 +40,7 @@ local stored = current_search and previous or ARGV[4]
 redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', current)
 redis.call('PSETEX', KEYS[1], lease, stored)
 redis.call('ZADD', KEYS[2], current + lease, ARGV[3])
+if requested.queue ~= requested.mode then redis.call('PEXPIRE', KEYS[2], lease) end
 return stored
 """
 REMOVE = """
@@ -47,7 +48,7 @@ local previous = redis.call('GET', KEYS[1])
 local entry = previous and cjson.decode(previous)
 if entry and entry.search_id == ARGV[1] and entry.mode == ARGV[3] then
     redis.call('DEL', KEYS[1])
-    redis.call('ZREM', KEYS[2], ARGV[2])
+    redis.call('ZREM', ARGV[4] .. (entry.queue or entry.mode), ARGV[2])
     return 1
 end
 return 0
@@ -61,6 +62,7 @@ class SearchKey(BaseModel):
 
 class Search(SearchKey):
     start: bool = False
+    test_partner_email: EmailStr | None = None
     country: Literal["", "IN"] = ""
     language: Annotated[str, StringConstraints(strip_whitespace=True, max_length=24)] = ""
     interests: list[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]] = Field(
@@ -70,8 +72,8 @@ class Search(SearchKey):
 
 async def delete_entry(user_id: UUID, key: SearchKey):
     return await cache.eval(
-        REMOVE, 2, PREFIX + str(user_id), PREFIX + "mode:" + key.mode,
-        str(key.search_id), str(user_id), key.mode,
+        REMOVE, 1, PREFIX + str(user_id),
+        str(key.search_id), str(user_id), key.mode, PREFIX + "mode:",
     )
 
 
@@ -93,20 +95,21 @@ async def recently_connected(db: Db, user_id: UUID, candidate_id: UUID):
 
 
 async def queued_candidates(user_id: UUID, own):
-    entries = await cache.zrange(PREFIX + "mode:" + own["mode"], 0, CANDIDATE_LIMIT)
+    queue = own.get("queue", own["mode"])
+    entries = await cache.zrange(PREFIX + "mode:" + queue, 0, CANDIDATE_LIMIT)
     ids = [value for value in entries if value != str(user_id)]
     if not ids:
         return []
     payloads = await cache.mget([PREFIX + value for value in ids])
     candidates = [(UUID(value), json.loads(payload)) for value, payload in zip(ids, payloads) if payload]
     results = [(identifier, entry) for identifier, entry in candidates
-               if entry["mode"] == own["mode"] and compatible(own, entry)]
+               if entry.get("queue", entry["mode"]) == queue and (queue != own["mode"] or compatible(own, entry))]
     return sorted(results, key=lambda item: (
         -len(set(own["interests"]) & set(item[1]["interests"])), item[1]["joined_at"]
     ))
 
 
-async def reserve(db: Db, user_id: UUID, candidate_id: UUID, entry, mode: Mode):
+async def reserve(db: Db, user_id: UUID, candidate_id: UUID, entry, mode: Mode, *, test_pair: bool):
     await release_expired(db, candidate_id)
     if await current_call(db, candidate_id) or await blocked(db, user_id, candidate_id):
         return None
@@ -114,7 +117,9 @@ async def reserve(db: Db, user_id: UUID, candidate_id: UUID, entry, mode: Mode):
         select(User).join(LoginSession).where(User.id == candidate_id, LoginSession.token_hash == entry["session"],
                                                 LoginSession.expires_at > now())
     )
-    if not candidate or not await eligible(db, candidate) or await recently_connected(db, user_id, candidate_id):
+    if not candidate or not await eligible(db, candidate):
+        return None
+    if not test_pair and await recently_connected(db, user_id, candidate_id):
         return None
     call = Conversation(mode=mode, state="invited", expires_at=now() + timedelta(seconds=35))
     db.add(call)
@@ -129,6 +134,13 @@ async def search(payload: Search, request: Request, user: EligibleUser, db: Db):
     if not settings.enable_matchmaking:
         raise HTTPException(503, "Matchmaking is currently unavailable.")
     await throttle("queue", str(user.id), 60, 60)
+    queue = payload.mode
+    if payload.test_partner_email:
+        email, partner = user.email.casefold(), payload.test_partner_email.casefold()
+        if email == partner:
+            raise HTTPException(422, "Enter the other person's Trust Meet email address.")
+        pair = sorted([email, partner])
+        queue = f"test:{payload.mode}:{digest(json.dumps(pair))}"
     await lock_transitions(db)
     await release_expired(db, user.id)
     existing = await current_call(db, user.id)
@@ -136,13 +148,13 @@ async def search(payload: Search, request: Request, user: EligibleUser, db: Db):
         return {"waiting": False, "conversation": await describe(db, existing, user.id)}
 
     entry = {
-        "search_id": str(payload.search_id), "mode": payload.mode, "country": payload.country,
+        "search_id": str(payload.search_id), "mode": payload.mode, "queue": queue, "country": payload.country,
         "language": payload.language.casefold(), "interests": sorted({value.casefold() for value in payload.interests}),
         "session": digest(request.cookies[cookie_name]), "joined_at": now().timestamp(),
     }
     try:
         stored = await cache.eval(
-            UPSERT, 3, PREFIX + str(user.id), PREFIX + "mode:" + payload.mode,
+            UPSERT, 3, PREFIX + str(user.id), PREFIX + "mode:" + queue,
             PREFIX + "used:" + str(user.id) + ":" + str(payload.search_id),
             int(payload.start), LEASE_SECONDS * 1000, str(user.id), json.dumps(entry), PREFIX + "mode:",
         )
@@ -150,7 +162,7 @@ async def search(payload: Search, request: Request, user: EligibleUser, db: Db):
             raise HTTPException(409, "This search ended. Start a new search to continue.")
         own = json.loads(stored)
         for candidate_id, candidate in await queued_candidates(user.id, own):
-            call = await reserve(db, user.id, candidate_id, candidate, payload.mode)
+            call = await reserve(db, user.id, candidate_id, candidate, payload.mode, test_pair=queue != payload.mode)
             if call:
                 # Remove both leases before committing. If Redis or the transaction fails,
                 # no match is announced and the affected users can start another search.

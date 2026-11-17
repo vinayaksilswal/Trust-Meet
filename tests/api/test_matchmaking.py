@@ -88,3 +88,44 @@ def test_queue_uses_mode_language_and_interests():
         assert match["mode"] == "audio"
         assert not match["consented"]
         assert second.post("conversations/" + match["id"] + "/end", json={}).status_code == 204
+
+
+def test_test_partners_can_rematch_without_joining_the_public_queue():
+    with ExitStack() as stack:
+        first, second, outsider = [
+            stack.enter_context(httpx.Client(base_url=origin + "/api", headers={"Origin": origin}, timeout=15))
+            for _ in range(3)
+        ]
+        accounts = [signed_in_account(client) for client in (first, second, outsider)]
+        for client in (first, second, outsider):
+            assert client.post("eligibility", json={"birth_date": "1990-01-01"}).is_success
+
+        def search(client, partner=None):
+            payload = {"search_id": str(uuid4()), "mode": "video", "start": True}
+            if partner:
+                payload["test_partner_email"] = partner
+            return payload, client.post("matchmaking/search", json=payload).raise_for_status().json()
+
+        first_email, second_email, _ = [account["email"] for account in accounts]
+        _, result = search(first, second_email)
+        assert result["waiting"]
+        _, result = search(outsider, first_email)
+        assert result["waiting"]
+        _, result = search(outsider)
+        assert result["waiting"]
+
+        previous_id = None
+        for index in range(2):
+            if index:
+                _, result = search(first, second_email)
+                assert result["waiting"]
+            _, result = search(second, first_email.upper())
+            call = result["conversation"]
+            assert call["id"] != previous_id
+            previous_id = call["id"]
+            assert first.get("conversations/current").json()["id"] == call["id"]
+            assert outsider.get("conversations/current").json() is None
+            path = "conversations/" + call["id"]
+            assert first.post(path + "/accept", json={}).json()["state"] == "invited"
+            assert second.post(path + "/accept", json={}).json()["state"] == "active"
+            assert first.post(path + "/end", json={}).status_code == 204

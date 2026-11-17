@@ -18,7 +18,7 @@ const modes = [
 ] as const;
 
 const queueSchema = z.object({ waiting: z.boolean(), conversation: conversation.nullable() });
-type Choice = { search_id: string; mode: Mode; language: string; country: string; interests: string[] };
+type Choice = { search_id: string; mode: Mode; language: string; country: string; interests: string[]; test_partner_email?: string };
 
 const searchEnded = (error: unknown) => error instanceof ApiError && error.status === 409;
 
@@ -30,6 +30,8 @@ export function Connect() {
   const callKey = useMemo(() => ["conversation", profile?.id], [profile?.id]);
   const [mode, setMode] = useState<Mode>("video");
   const [preferences, setPreferences] = useState({ language: "", country: "", interests: "" });
+  const [testMode, setTestMode] = useState(false);
+  const [testPartner, setTestPartner] = useState("");
   const [searching, setSearching] = useState<Choice | null>(null);
   const [inviteToken, setInviteToken] = useState("");
   const [inviteUrl, setInviteUrl] = useState("");
@@ -94,9 +96,14 @@ export function Connect() {
   const action = useMutation({
     mutationFn: async (verb: "invite" | "accept-invite" | "accept-match" | "end" | "next" | "cancel" | "block" | "search") => {
       if (verb === "search") {
+        const partner = testMode ? testPartner.trim() : "";
+        if (!searching && testMode && !z.string().email().safeParse(partner).success) {
+          throw new ApiError(422, "Enter your test partner’s Trust Meet email address.");
+        }
         const choice = searching ?? {
           mode, language: preferences.language.trim(), country: preferences.country,
           interests: [...new Set(preferences.interests.split(",").map(value => value.trim().slice(0, 40)).filter(Boolean))].slice(0, 5),
+          test_partner_email: partner || undefined,
         };
         await requestMedia(choice.mode);
         await joinQueue({ ...choice, search_id: crypto.randomUUID() });
@@ -155,8 +162,10 @@ export function Connect() {
            <button className="button button-danger" disabled={action.isPending} onClick={() => action.mutate("end")}>{active.partner ? "Decline match" : "Cancel invitation"}</button>
          </div></> :
        searching ? <>
-         <h2>{searchEnded(queue.error) ? "Search ended" : "Looking for someone"}</h2>
-         {!queue.isError && <Notice>No conversation yet. You can keep waiting or leave the queue.</Notice>}
+         <h2>{searchEnded(queue.error) ? "Search ended" : searching.test_partner_email ? "Waiting for your test partner" : "Looking for someone"}</h2>
+         {!queue.isError && <Notice>{searching.test_partner_email
+           ? "Ask your partner to enter your email and choose the same conversation mode."
+           : "No conversation yet. You can keep waiting or leave the queue."}</Notice>}
          {queue.isError && <Notice error>{errorMessage(queue.error)} <button disabled={action.isPending} onClick={() => searchEnded(queue.error) ? action.mutate("search") : queue.refetch()}>{searchEnded(queue.error) ? "Start a new search" : "Try again"}</button></Notice>}
          <button className="button button-outline" disabled={action.isPending} onClick={() => action.mutate("cancel")}>Leave queue</button>
        </> : <>
@@ -167,7 +176,7 @@ export function Connect() {
            </label>)}
          </fieldset>
          <div className="action-row random-entry-actions">
-           {profile.matchmaking_enabled && <button className="button button-primary" disabled={action.isPending} onClick={() => action.mutate("search")}>Find a match <ArrowRight size={16} /></button>}
+           {profile.matchmaking_enabled && <button className="button button-primary" disabled={action.isPending} onClick={() => action.mutate("search")}>{testMode ? "Find test partner" : "Find a match"} <ArrowRight size={16} /></button>}
            <button className={"button " + (profile.matchmaking_enabled ? "button-outline" : "button-primary")} disabled={action.isPending} onClick={() => action.mutate("invite")}>Create invitation</button>
            <button className="button button-outline" aria-expanded={accepting} onClick={() => setAccepting(!accepting)}>Join by invitation</button>
          </div>
@@ -175,11 +184,18 @@ export function Connect() {
          {profile.matchmaking_enabled && mode !== "text" && <p className="random-match-permission">
            {mode === "video" ? "Your camera and microphone turn on" : "Your microphone turns on"} after both people accept.
          </p>}
-         {profile.matchmaking_enabled && <details className="form-stack"><summary>Matching preferences</summary>
+         {profile.matchmaking_enabled && !testMode && <details className="form-stack"><summary>Matching preferences</summary>
            <Field label="Language" maxLength={24} placeholder="e.g. English" value={preferences.language} onChange={event => setPreferences({ ...preferences, language: event.target.value })} />
            <label className="field">Country preference<select value={preferences.country} onChange={event => setPreferences({ ...preferences, country: event.target.value })}><option value="">Any country</option><option value="IN">India</option></select></label>
            <Field label="Interests (up to 5, comma separated)" maxLength={120} placeholder="e.g. music, startups" value={preferences.interests} onChange={event => setPreferences({ ...preferences, interests: event.target.value })} />
          </details>}
+         {profile.matchmaking_enabled && <div className="form-stack">
+           <label className="room-checkbox"><input type="checkbox" checked={testMode} onChange={event => setTestMode(event.target.checked)} /> Test with a partner</label>
+           {testMode && <>
+             <Field label="Test partner’s email" type="email" maxLength={254} value={testPartner} onChange={event => setTestPartner(event.target.value)} />
+             <p>Enter each other’s Trust Meet email and choose the same mode. You can match again as soon as the call ends.</p>
+           </>}
+         </div>}
          {accepting && <form className="form-stack" onSubmit={event => { event.preventDefault(); action.mutate("accept-invite"); }}>
            <Field label="Invitation code" value={inviteToken} onChange={event => {
              const value = event.target.value;
