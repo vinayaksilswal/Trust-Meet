@@ -276,3 +276,14 @@ input, select { width: 100%; color: var(--ink); border: 1px solid #bfcfc8; paddi
   .random-entry .button-primary { grid-column: 1 / -1; }
   .random-entry-actions .button { font-size: 12px; white-space: normal; }
 }
+.random-match-controls {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  align-items: end;
+  gap: 12px;
+}
+.random-match-controls > .button { min-height: 54px; }
+@media (max-width: 600px) {
+  .random-match-controls { grid-template-columns: 1fr 1fr; }
+  .random-match-controls > .button { grid-column: 1 / -1; }
+}

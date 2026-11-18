@@ -12,6 +12,7 @@ import { z } from "zod";
 import { api, errorMessage } from "@/lib/client";
 import { connectRealtimeKit, type CallControls } from "./realtimekit-call";
 import { RandomStudio, RandomTile } from "./random-studio";
+import { RandomControls } from "./random-controls";
 
 const chatTopic = "conviya.chat";
 const chatMessage = z.string().trim().min(1).max(500);
@@ -25,9 +26,10 @@ type Props = {
   onNext?: () => void;
   nextLabel?: string;
   autoStartMedia?: boolean;
+  randomVideo?: boolean;
 };
 
-export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", group = false, autoStartMedia = false }: Props) {
+export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", group = false, autoStartMedia = false, randomVideo = false }: Props) {
   const [connection, setConnection] = useState<ConnectionState>(ConnectionState.Connecting);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
@@ -132,7 +134,7 @@ export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", g
         }
         if (controller.signal.aborted) { await active.close(); return; }
         controls.current = active;
-        if (autoStartMedia && retry === 0 && call.mode !== "text") {
+        if (autoStartMedia && (randomVideo || retry === 0) && call.mode !== "text") {
           const results = await Promise.allSettled([
             active.setMic(true),
             ...(call.mode === "video" ? [active.setCamera(true)] : []),
@@ -141,8 +143,9 @@ export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", g
           setMic(results[0].status === "fulfilled");
           if (call.mode === "video") setCamera(results[1].status === "fulfilled");
           if (results.some(result => result.status === "rejected")) {
-            setError("A media device could not start. Check permissions and use the call controls to retry.");
+            setError(randomVideo ? "Camera or microphone could not start. Check browser permissions and click Next." : "A media device could not start. Check permissions and use the call controls to retry.");
           }
+          await active.startAudio().catch(() => setAudioBlocked(true));
         }
         if (call.mode !== "text" && navigator.mediaDevices) {
           const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
@@ -166,7 +169,7 @@ export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", g
       if (controls.current === active) controls.current = null;
       void (active?.close() ?? instance.disconnect()).catch(() => undefined);
     };
-  }, [autoStartMedia, callPath, call.mode, retry]);
+  }, [autoStartMedia, callPath, call.mode, retry, randomVideo]);
 
   useEffect(() => {
     if (history.current) history.current.scrollTop = history.current.scrollHeight;
@@ -283,7 +286,10 @@ export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", g
   </div>;
 
   return <>
-    <RandomStudio controls={<>{callStatus}{mediaControls}{safetyControls}</>} side={
+    <RandomStudio controls={<>{callStatus}{randomVideo ? <>
+      <RandomControls busy={busy} onNext={onNext ?? onEnd} />
+      {audioBlocked && <p onClick={() => void controls.current?.startAudio().then(() => setAudioBlocked(false))}>Tap here to hear your match.</p>}
+    </> : <>{mediaControls}{safetyControls}</>}</>} side={
       <div className="random-active-chat">{chatPanel}</div>
     }>
       <RandomTile name={call.partner ?? "Your match"} mode={call.mode}

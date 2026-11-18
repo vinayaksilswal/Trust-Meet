@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import aliased
 
 from .config import settings
-from .conversations import EligibleUser, Mode, blocked, current_call, describe, lock_transitions, release_expired
+from .conversations import EligibleUser, Mode, activate, blocked, current_call, describe, lock_transitions, release_expired
 from .eligibility import eligible
 from .identity import CurrentUser, Db, cookie_name
 from .models import Conversation, LoginSession, Participant, User
@@ -62,6 +62,7 @@ class SearchKey(BaseModel):
 
 class Search(SearchKey):
     start: bool = False
+    auto_connect: bool = False
     test_partner_email: EmailStr | None = None
     country: Literal["", "IN"] = ""
     language: Annotated[str, StringConstraints(strip_whitespace=True, max_length=24)] = ""
@@ -109,7 +110,7 @@ async def queued_candidates(user_id: UUID, own):
     ))
 
 
-async def reserve(db: Db, user_id: UUID, candidate_id: UUID, entry, mode: Mode, *, test_pair: bool):
+async def reserve(db: Db, user_id: UUID, candidate_id: UUID, entry, mode: Mode, *, test_pair: bool, auto_connect: bool):
     await release_expired(db, candidate_id)
     if await current_call(db, candidate_id) or await blocked(db, user_id, candidate_id):
         return None
@@ -124,8 +125,10 @@ async def reserve(db: Db, user_id: UUID, candidate_id: UUID, entry, mode: Mode, 
     call = Conversation(mode=mode, state="invited", expires_at=now() + timedelta(seconds=35))
     db.add(call)
     await db.flush()
-    db.add_all([Participant(user_id=user_id, conversation_id=call.id),
-                Participant(user_id=candidate_id, conversation_id=call.id)])
+    db.add_all([Participant(user_id=user_id, conversation_id=call.id, consented_at=now() if auto_connect else None),
+                Participant(user_id=candidate_id, conversation_id=call.id, consented_at=now() if entry.get("auto_connect") else None)])
+    if auto_connect and entry.get("auto_connect"):
+        activate(call)
     return call
 
 
@@ -149,6 +152,7 @@ async def search(payload: Search, request: Request, user: EligibleUser, db: Db):
 
     entry = {
         "search_id": str(payload.search_id), "mode": payload.mode, "queue": queue, "country": payload.country,
+        "auto_connect": payload.auto_connect,
         "language": payload.language.casefold(), "interests": sorted({value.casefold() for value in payload.interests}),
         "session": digest(request.cookies[cookie_name]), "joined_at": now().timestamp(),
     }
@@ -162,7 +166,8 @@ async def search(payload: Search, request: Request, user: EligibleUser, db: Db):
             raise HTTPException(409, "This search ended. Start a new search to continue.")
         own = json.loads(stored)
         for candidate_id, candidate in await queued_candidates(user.id, own):
-            call = await reserve(db, user.id, candidate_id, candidate, payload.mode, test_pair=queue != payload.mode)
+            call = await reserve(db, user.id, candidate_id, candidate, payload.mode,
+                                 test_pair=queue != payload.mode, auto_connect=own.get("auto_connect", False))
             if call:
                 # Remove both leases before committing. If Redis or the transaction fails,
                 # no match is announced and the affected users can start another search.
