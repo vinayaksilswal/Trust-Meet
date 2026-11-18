@@ -23,6 +23,7 @@ export function Connect() {
   const [search, setSearch] = useState<Search | null>(null);
   const [mediaAllowed, setMediaAllowed] = useState(false);
   const nextInProgress = useRef(false);
+  const previousCall = useRef<string | null>(null);
   const current = useQuery({
     queryKey: callKey, enabled,
     queryFn: ({ signal }) => api("/conversations/current", conversation.nullable(), undefined, signal),
@@ -61,6 +62,15 @@ export function Connect() {
   useEffect(() => {
     if (queue.data?.conversation) client.setQueryData(callKey, queue.data.conversation);
   }, [queue.data, client, callKey]);
+  useEffect(() => {
+    if (active) {
+      previousCall.current = active.id;
+      setSearch(null);
+    } else if (previousCall.current && !next.isPending) {
+      previousCall.current = null;
+      if (!search && mediaAllowed) next.mutate();
+    }
+  }, [active?.id, search, mediaAllowed, next.isPending, next.mutate]);
   useEffect(() => {
     if (search && !active && queue.error instanceof ApiError && queue.error.status === 409 && !next.isPending) next.mutate();
   }, [search, active, queue.error, next.isPending, next.mutate]);
