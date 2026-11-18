@@ -105,6 +105,6 @@ export function WaitingChat() {
         <li>Keep personal details private.</li></ul>
       <Link href="/safety"><ShieldCheck size={16} /> Safety Center</Link>
     </div>
-    <div className="random-chat-locked"><LockKeyhole size={16} /> Chat opens after both people accept.</div>
+    <div className="random-chat-locked"><LockKeyhole size={16} /> Chat opens when you connect.</div>
   </>;
 }

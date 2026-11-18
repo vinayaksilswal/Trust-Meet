@@ -145,7 +145,7 @@ export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", g
           if (results.some(result => result.status === "rejected")) {
             setError(randomVideo ? "Camera or microphone could not start. Check browser permissions and click Next." : "A media device could not start. Check permissions and use the call controls to retry.");
           }
-          await active.startAudio().catch(() => setAudioBlocked(true));
+          await Promise.resolve().then(() => active?.startAudio()).catch(() => setAudioBlocked(true));
         }
         if (call.mode !== "text" && navigator.mediaDevices) {
           const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
@@ -154,7 +154,7 @@ export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", g
       } catch (cause) {
         if (controller.signal.aborted) return;
         setConnection(ConnectionState.Disconnected);
-        setError(errorMessage(cause));
+        setError(cause instanceof Error ? cause.message : errorMessage(cause));
         await (active?.close() ?? instance.disconnect()).catch(() => undefined);
       } finally {
         if (!controller.signal.aborted) setControlBusy(false);
