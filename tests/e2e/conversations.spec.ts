@@ -34,14 +34,16 @@ async function twoAccounts(browser: Browser) {
 test("discovery is accessible and fits a mobile viewport", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Discover Trust Meet" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Meet someone new/ })).toBeVisible();
   expect(await page.evaluate(() => window.isSecureContext && !!navigator.mediaDevices?.getUserMedia)).toBe(true);
   await page.getByRole("button", { name: "Open menu" }).click();
   await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
   await page.getByRole("button", { name: "Close menu" }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   expect((await new axe({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
-  await page.getByRole("link", { name: "Find a conversation" }).click();
+  await page.getByRole("link", { name: "Start chatting free" }).click();
+  await expect(page.getByRole("heading", { name: "Create an account" })).toBeVisible();
+  await page.goto("/connect");
   await expect(page.getByRole("heading", { name: "Sign in to connect" })).toBeVisible();
 });
 

@@ -4,15 +4,18 @@ import type { NextRequest } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 20;
 
-const routes = new Set(["auth", "conversations", "eligibility", "matchmaking", "me", "health", "ready", "rooms"]);
+const routes = new Set(["auth", "billing", "conversations", "eligibility", "matchmaking", "me", "health", "ready", "rooms"]);
 const maxBodyBytes = 16_384;
+// Razorpay webhook payloads are larger than browser requests and carry their own signature.
+const webhookBodyBytes = 262_144;
+const webhookHeaders = ["x-razorpay-signature", "x-razorpay-event-id"];
 const responseHeaders = ["content-type", "retry-after", "www-authenticate"];
 
 function failure(status: number, detail: string) {
   return Response.json({ detail }, { status, headers: { "Cache-Control": "no-store" } });
 }
 
-async function readBody(request: NextRequest) {
+async function readBody(request: NextRequest, limit: number) {
   if (!request.body) return "";
   const reader = request.body.getReader();
   const decoder = new TextDecoder();
@@ -21,7 +24,7 @@ async function readBody(request: NextRequest) {
     const { done, value } = await reader.read();
     if (done) return result + decoder.decode();
     size += value.byteLength;
-    if (size > maxBodyBytes) {
+    if (size > limit) {
       await reader.cancel();
       return null;
     }
@@ -59,12 +62,13 @@ async function proxy(request: NextRequest, { params }: { params: Promise<{ path:
   if (secret) headers.set("x-trust-meet-proxy-key", secret);
   const ip = request.headers.get("x-vercel-forwarded-for");
   if (process.env.VERCEL === "1" && ip && isIP(ip)) headers.set("x-trust-meet-client-ip", ip);
-  for (const key of ["origin", "content-type", "cookie"]) {
+  const webhook = path.join("/") === "billing/webhook";
+  for (const key of webhook ? ["content-type", ...webhookHeaders] : ["origin", "content-type", "cookie"]) {
     const value = request.headers.get(key);
     if (value) headers.set(key, value);
   }
   try {
-    const body = request.method === "POST" ? await readBody(request) : undefined;
+    const body = request.method === "POST" ? await readBody(request, webhook ? webhookBodyBytes : maxBodyBytes) : undefined;
     if (body === null) return failure(413, "The request is too large.");
     const response = await fetch(target, {
       method: request.method, headers, body, cache: "no-store",

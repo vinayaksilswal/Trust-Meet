@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     realtimekit_video_preset: str = "trust_meet_video"
     realtimekit_audio_preset: str = "trust_meet_audio"
     realtimekit_text_preset: str = "trust_meet_text"
+    enable_billing: bool = False
+    razorpay_key_id: str = ""
+    razorpay_key_secret: str = ""
+    razorpay_webhook_secret: str = ""
+    razorpay_plus_plan_id: str = ""
+    plus_price_inr: int = 199
 
     @property
     def database_connection_url(self) -> URL:
@@ -69,6 +75,15 @@ class Settings(BaseSettings):
             presets = {self.realtimekit_video_preset, self.realtimekit_audio_preset, self.realtimekit_text_preset}
             if len(presets) != 3 or not all(preset.strip() for preset in presets):
                 raise ValueError("RealtimeKit requires separate text, audio and video presets.")
+        if self.enable_billing:
+            if not self.razorpay_key_id.startswith(("rzp_test_", "rzp_live_")) or len(self.razorpay_key_secret) < 16:
+                raise ValueError("Billing requires a Razorpay key ID and key secret.")
+            if len(self.razorpay_webhook_secret) < 16 or not self.razorpay_plus_plan_id.startswith("plan_"):
+                raise ValueError("Billing requires a Razorpay webhook secret and Plus plan ID.")
+            if self.razorpay_key_id.startswith("rzp_live_") and self.environment != "production":
+                raise ValueError("Live Razorpay keys require production settings.")
+            if not 1 <= self.plus_price_inr <= 100_000:
+                raise ValueError("PLUS_PRICE_INR must be a whole rupee amount.")
         if self.public_conversations and self.environment != "production":
             raise ValueError("Public conversations require production settings.")
         origin = urlsplit(self.web_origin)

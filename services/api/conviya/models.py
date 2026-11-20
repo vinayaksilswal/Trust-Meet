@@ -132,6 +132,26 @@ class RealtimeParticipant(Base):
     participant_id: Mapped[UUID]
 
 
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+
+    user_id: Mapped[UUID] = mapped_column(sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    provider_subscription_id: Mapped[str] = mapped_column(sa.String(40), unique=True)
+    plan_id: Mapped[str] = mapped_column(sa.String(40))
+    status: Mapped[str] = mapped_column(sa.String(16))
+    current_end: Mapped[datetime | None]
+    cancel_requested_at: Mapped[datetime | None]
+    updated_at: Mapped[datetime] = mapped_column(server_default=sa.func.now())
+
+
+class BillingEvent(Base):
+    __tablename__ = "billing_events"
+
+    event_id: Mapped[str] = mapped_column(sa.String(64), primary_key=True)
+    event_type: Mapped[str] = mapped_column(sa.String(48))
+    received_at: Mapped[datetime] = mapped_column(server_default=sa.func.now(), index=True)
+
+
 class Report(Base):
     __tablename__ = "reports"
     __table_args__ = (sa.UniqueConstraint("reporter_id", "conversation_id", name="one_report_per_conversation"),)

@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { z } from "zod";
 import { api, errorMessage, useAccount } from "@/lib/client";
+import { PlusAction } from "./pricing";
 
 export type AccountAction = "settings" | "login" | "register" | "recover" | "reset";
 const titles = {
@@ -43,7 +44,7 @@ function AccountForm({ action }: { action: Exclude<AccountAction, "settings"> })
       if (action === "login") {
         await client.invalidateQueries({ queryKey: ["account"] });
         const next = new URLSearchParams(window.location.search).get("next");
-        router.push(next === "connect" ? "/connect" : next === "rooms" ? "/private-rooms" : "/account");
+        router.push(next === "connect" ? "/connect" : next === "rooms" ? "/private-rooms" : next === "pricing" ? "/pricing" : "/account");
       }
     },
   });
@@ -106,6 +107,9 @@ function Settings() {
         <button className="button button-primary" disabled={age.isPending}>{age.isPending ? "Checking…" : "Check my age"}</button>
       </form> : <Notice>The age check is currently unavailable.</Notice>}
     {age.isError && <Notice error>{errorMessage(age.error)}</Notice>}
+    <h2>Your plan</h2>
+    <p>{account.data.plus ? "Trust Meet Plus" : "Free"} · <Link href="/pricing">Compare plans</Link></p>
+    <div className="form-stack"><PlusAction /></div>
     {logout.isError && <Notice error>{errorMessage(logout.error)}</Notice>}
     <div className="form-links">{account.data.eligible && account.data.matchmaking_enabled && <Link href="/connect">Find a match</Link>}
     {account.data.eligible && account.data.private_rooms_enabled && <Link href="/private-rooms">Open Private Rooms</Link>}

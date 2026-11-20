@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from redis.exceptions import RedisError
 
-from . import conversations, eligibility, identity, matchmaking, realtimekit, rooms
+from . import billing, conversations, eligibility, identity, matchmaking, realtimekit, rooms
 from .config import settings
 from .maintenance import maintain
 from .runtime import cache, database_sqlstate, engine, require_maintenance
@@ -47,7 +47,8 @@ async def protect_browser_requests(request: Request, call_next):
             request.state.trusted_client_ip = str(ip_address(request.headers.get("x-trust-meet-client-ip", "")))
         except ValueError:
             pass
-    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+    # Razorpay signs webhooks server to server, so they carry no browser origin.
+    if request.method not in {"GET", "HEAD", "OPTIONS"} and request.url.path != "/billing/webhook":
         if request.headers.get("origin") != settings.web_origin:
             return JSONResponse({"detail": "Request origin is not allowed."}, 403)
     response = await call_next(request)
@@ -105,3 +106,4 @@ app.include_router(eligibility.router)
 app.include_router(conversations.router)
 app.include_router(matchmaking.router)
 app.include_router(rooms.router)
+app.include_router(billing.router)

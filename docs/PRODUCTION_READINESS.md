@@ -10,6 +10,8 @@ The hosted configuration supports password signup and a self-reported date-of-bi
 - LiveKit text, voice and video with browser media controls.
 - Private rooms with expiring links, passwords, host approval, schedule, capacity, lock, mute, removal and closure.
 - PostgreSQL migrations, development infrastructure and a CI workflow.
+- Razorpay Plus subscriptions with signed checkout verification, deduplicated webhooks and cancellation. See [Payments](PAYMENTS.md).
+- Policy pages (Terms, Privacy, Refunds, Guidelines, Contact and Grievance), pricing page, sitemap, robots rules, structured data and consent-aware AdSense slots.
 
 ## Partial
 
@@ -20,7 +22,7 @@ The hosted configuration supports password signup and a self-reported date-of-bi
 
 ## Blocked pending authorization and operational reviews
 
-- Public launch, production deployment, real payments and payouts.
+- Public launch, production deployment, live payments and payouts. See the [launch checklist](LAUNCH_CHECKLIST.md).
 - Wellness safeguarding, health workflow approval, and India-specific legal review.
 - Production video testing needs working media credentials, effective media revocation and staffed moderation for public traffic.
 

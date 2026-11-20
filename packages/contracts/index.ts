@@ -7,7 +7,19 @@ export const session = z.object({
   eligible: z.boolean(), age_check_available: z.boolean(),
   age_check_underage: z.boolean().default(false),
   conversations_enabled: z.boolean(), matchmaking_enabled: z.boolean(), private_rooms_enabled: z.boolean(),
+  plus: z.boolean().default(false),
 });
+export type Session = z.infer<typeof session>;
+export const subscription = z.object({
+  status: z.string(), current_end: z.string().nullable(), cancel_requested: z.boolean(),
+});
+export const billing = z.object({
+  enabled: z.boolean(), key_id: z.string().nullable(),
+  plan: z.object({ name: z.string(), price_inr: z.number().int(), interval: z.string() }),
+  plus: z.boolean(), subscription: subscription.nullable(),
+});
+export const checkout = z.object({ subscription_id: z.string(), key_id: z.string() });
+export const billingState = z.object({ plus: z.boolean(), subscription: subscription.nullable() });
 export const conversation = z.object({
   id: z.uuid(), mode, state: z.enum(["invited", "active", "ended"]),
   expires_at: z.string(), consented: z.boolean(), partner: z.string().nullable(),

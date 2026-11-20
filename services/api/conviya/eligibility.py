@@ -6,8 +6,9 @@ from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert
 
 from .config import settings
+from .entitlements import is_plus
 from .identity import CurrentUser, Db
-from .models import Eligibility, User
+from .models import Eligibility, Subscription, User
 from .runtime import now, throttle
 
 
@@ -74,6 +75,7 @@ async def me(user: CurrentUser, db: Db):
         "conversations_enabled": settings.enable_conversations,
         "matchmaking_enabled": settings.enable_matchmaking,
         "private_rooms_enabled": settings.enable_private_rooms,
+        "plus": is_plus(await db.get(Subscription, user.id)),
     }
 
 

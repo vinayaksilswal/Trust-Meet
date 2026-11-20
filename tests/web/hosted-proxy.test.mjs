@@ -51,3 +51,35 @@ test("hosted proxy signs requests, forwards sessions, and enforces the route and
   delete process.env.TRUST_MEET_API_URL;
   assert.equal((await GET(...makeRequest(["auth", "options"]))).status, 503);
 });
+
+test("billing webhooks forward only the Razorpay signature, not browser credentials", async t => {
+  const original = { ...process.env };
+  t.after(() => {
+    for (const key of ["VERCEL", "VERCEL_ENV", "TRUST_MEET_API_URL", "TRUST_MEET_WEB_PROXY_SECRET"]) {
+      if (original[key] === undefined) delete process.env[key];
+      else process.env[key] = original[key];
+    }
+  });
+  process.env.VERCEL = "1";
+  process.env.VERCEL_ENV = "production";
+  process.env.TRUST_MEET_API_URL = "https://internal.example.com/api/";
+  process.env.TRUST_MEET_WEB_PROXY_SECRET = "p".repeat(48);
+  const body = JSON.stringify({ event: "subscription.charged", padding: "x".repeat(20_000) });
+  t.mock.method(globalThis, "fetch", async (target, options) => {
+    assert.equal(target.href, "https://internal.example.com/api/billing/webhook");
+    assert.equal(options.headers.get("x-razorpay-signature"), "a".repeat(64));
+    assert.equal(options.headers.get("x-razorpay-event-id"), "evt_sample");
+    assert.equal(options.headers.get("cookie"), null);
+    assert.equal(options.headers.get("origin"), null);
+    assert.equal(options.body, body);
+    return Response.json({ status: "processed" });
+  });
+  const request = new Request("https://meet.example.com/api/billing/webhook", {
+    method: "POST", body,
+    headers: { "content-type": "application/json", "x-razorpay-signature": "a".repeat(64),
+      "x-razorpay-event-id": "evt_sample", cookie: "__Host-conviya=opaque", origin: "https://evil.example" },
+  });
+  request.nextUrl = new URL(request.url);
+  const response = await POST(request, { params: Promise.resolve({ path: ["billing", "webhook"] }) });
+  assert.equal(response.status, 200);
+});
