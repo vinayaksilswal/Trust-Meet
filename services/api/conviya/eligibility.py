@@ -1,15 +1,15 @@
 from datetime import date
 from typing import Protocol
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert
 
 from .config import settings
-from .entitlements import is_plus
+from .entitlements import is_plus, premium_until
 from .identity import CurrentUser, Db
 from .models import Eligibility, Subscription, User
-from .runtime import now, throttle
+from .runtime import client_country, now, throttle
 
 
 router = APIRouter(tags=["eligibility"])
@@ -65,7 +65,7 @@ async def require_eligible(user: CurrentUser, db: Db):
 
 
 @router.get("/me")
-async def me(user: CurrentUser, db: Db):
+async def me(request: Request, user: CurrentUser, db: Db):
     row = await db.get(Eligibility, user.id)
     provider = assurance_provider()
     return {
@@ -76,6 +76,9 @@ async def me(user: CurrentUser, db: Db):
         "matchmaking_enabled": settings.enable_matchmaking,
         "private_rooms_enabled": settings.enable_private_rooms,
         "plus": is_plus(await db.get(Subscription, user.id)),
+        "premium_until": await premium_until(db, user.id),
+        "gender": user.gender,
+        "country": client_country(request) or None,
     }
 
 

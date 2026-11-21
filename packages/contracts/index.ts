@@ -8,16 +8,28 @@ export const session = z.object({
   age_check_underage: z.boolean().default(false),
   conversations_enabled: z.boolean(), matchmaking_enabled: z.boolean(), private_rooms_enabled: z.boolean(),
   plus: z.boolean().default(false),
+  premium_until: z.string().nullable().default(null),
+  gender: z.enum(["male", "female", "other"]).nullable().default(null),
+  country: z.string().nullable().default(null),
 });
 export type Session = z.infer<typeof session>;
 export const subscription = z.object({
   status: z.string(), current_end: z.string().nullable(), cancel_requested: z.boolean(),
 });
-export const billing = z.object({
-  enabled: z.boolean(), key_id: z.string().nullable(),
-  plan: z.object({ name: z.string(), price_inr: z.number().int(), interval: z.string() }),
-  plus: z.boolean(), subscription: subscription.nullable(),
+export const dayPass = z.object({ id: z.enum(["1d", "3d", "7d"]), days: z.number().int(), price_inr: z.number().int() });
+export type DayPass = z.infer<typeof dayPass>;
+const plan = z.object({ name: z.string(), price_inr: z.number().int(), interval: z.string() });
+export const catalog = z.object({
+  enabled: z.boolean(), passes: z.array(dayPass), plus_available: z.boolean(), plan,
 });
+export const billing = z.object({
+  enabled: z.boolean(), key_id: z.string().nullable(), plan, plus_available: z.boolean().default(false),
+  plus: z.boolean(), subscription: subscription.nullable(),
+  passes: z.array(dayPass).default([]), premium_until: z.string().nullable().default(null),
+});
+export const passOrder = z.object({ order_id: z.string(), key_id: z.string(), amount: z.number().int(), currency: z.string() });
+export const passState = z.object({ premium_until: z.string().nullable() });
+export const online = z.object({ online: z.number().int() });
 export const checkout = z.object({ subscription_id: z.string(), key_id: z.string() });
 export const billingState = z.object({ plus: z.boolean(), subscription: subscription.nullable() });
 export const conversation = z.object({

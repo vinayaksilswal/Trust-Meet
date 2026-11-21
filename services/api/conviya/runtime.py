@@ -77,3 +77,10 @@ def client_key(request: Request):
     if settings.environment == "production":
         return getattr(request.state, "trusted_client_ip", "unknown")
     return request.client.host if request.client else "unknown"
+
+
+def client_country(request: Request) -> str:
+    """ISO country code from the hosting edge, trusted only behind the signed web proxy."""
+    if settings.environment == "production":
+        return getattr(request.state, "client_country", "")
+    return settings.dev_country

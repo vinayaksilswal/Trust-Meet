@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     razorpay_webhook_secret: str = ""
     razorpay_plus_plan_id: str = ""
     plus_price_inr: int = 199
+    pass_price_1d_inr: int = 999
+    pass_price_3d_inr: int = 1999
+    pass_price_7d_inr: int = 2999
+    # Development has no edge geolocation, so local users report this country.
+    dev_country: str = "IN"
 
     @property
     def database_connection_url(self) -> URL:
@@ -78,12 +83,15 @@ class Settings(BaseSettings):
         if self.enable_billing:
             if not self.razorpay_key_id.startswith(("rzp_test_", "rzp_live_")) or len(self.razorpay_key_secret) < 16:
                 raise ValueError("Billing requires a Razorpay key ID and key secret.")
-            if len(self.razorpay_webhook_secret) < 16 or not self.razorpay_plus_plan_id.startswith("plan_"):
-                raise ValueError("Billing requires a Razorpay webhook secret and Plus plan ID.")
+            if len(self.razorpay_webhook_secret) < 16:
+                raise ValueError("Billing requires a Razorpay webhook secret.")
+            if self.razorpay_plus_plan_id and not self.razorpay_plus_plan_id.startswith("plan_"):
+                raise ValueError("RAZORPAY_PLUS_PLAN_ID must be a Razorpay plan ID.")
             if self.razorpay_key_id.startswith("rzp_live_") and self.environment != "production":
                 raise ValueError("Live Razorpay keys require production settings.")
-            if not 1 <= self.plus_price_inr <= 100_000:
-                raise ValueError("PLUS_PRICE_INR must be a whole rupee amount.")
+            prices = (self.plus_price_inr, self.pass_price_1d_inr, self.pass_price_3d_inr, self.pass_price_7d_inr)
+            if not all(1 <= price <= 100_000 for price in prices):
+                raise ValueError("Prices must be whole rupee amounts.")
         if self.public_conversations and self.environment != "production":
             raise ValueError("Public conversations require production settings.")
         origin = urlsplit(self.web_origin)

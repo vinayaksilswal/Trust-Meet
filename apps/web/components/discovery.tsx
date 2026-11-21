@@ -1,11 +1,49 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, BadgeCheck, Ban, Flag, Globe2, Lock, MessageCircle, Mic, ShieldCheck, Shuffle, Sparkles, Video, Zap } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { ArrowRight, BadgeCheck, Ban, Flag, Globe2, Lock, MessageCircle, Mic, ShieldCheck, Shuffle, Sparkles, UserRound, Video, Zap } from "lucide-react";
+import type { Mode } from "@conviya/contracts";
 import { AdSlot } from "./ads";
 import { modules } from "./shell";
 import { useAccount } from "@/lib/client";
+import { formatCount, useOnline } from "@/lib/presence";
+
+const modes: { value: Mode; label: string; icon: typeof Video; cta: string }[] = [
+  { value: "text", label: "Text", icon: MessageCircle, cta: "Start Text Chat" },
+  { value: "audio", label: "Voice", icon: Mic, cta: "Start Voice Chat" },
+  { value: "video", label: "Video", icon: Video, cta: "Start Video Chat" },
+];
+
+function StartCard() {
+  const { data: account } = useAccount();
+  const online = useOnline();
+  const router = useRouter();
+  const [mode, setMode] = useState<Mode>("video");
+  const choice = modes.find(item => item.value === mode)!;
+  const target = account ? `/connect?mode=${mode}` : "/account/register";
+  return <section className="start-card" aria-labelledby="hero-title">
+    <div className="start-art" aria-hidden="true">
+      <span className="start-person"><i className="start-rec" /><UserRound size={40} /></span>
+      <span className="start-link" />
+      <span className="start-person"><i className="start-cam"><Video size={12} /></i><UserRound size={40} /></span>
+    </div>
+    <h1 id="hero-title">Talk With Strangers Online</h1>
+    <p className="start-sub">Random video, voice and text chat with people aged 18 and over.</p>
+    {online.data && <p className="start-online"><span className="online-dot" aria-hidden="true" />
+      <strong>{formatCount(online.data.online)}</strong> {online.data.online === 1 ? "person" : "people"} online right now</p>}
+    <div className="start-modes" role="radiogroup" aria-label="Chat type">
+      {modes.map(({ value, label, icon: Icon }) => <button key={value} type="button" role="radio" aria-checked={mode === value}
+        onClick={() => setMode(value)}><Icon size={18} /> {label}</button>)}
+    </div>
+    <button className="start-cta" onClick={() => router.push(target)}>{choice.cta} <ArrowRight size={20} /></button>
+    <ul className="start-proof" aria-label="Highlights">
+      <li><Zap size={14} /> Instant match</li><li><ShieldCheck size={14} /> Moderated</li>
+      <li><BadgeCheck size={14} /> 18+ only</li><li><Lock size={14} /> No recordings</li>
+    </ul>
+  </section>;
+}
 
 const steps = [
   { icon: BadgeCheck, title: "Create a free account", text: "Sign up with email and confirm your date of birth. It takes under a minute." },
@@ -31,25 +69,8 @@ const faqs = [
 ];
 
 export function Discovery() {
-  const { data: account } = useAccount();
-  const start = account ? "/connect" : "/account/register";
   return <>
-    <section className="hero landing-hero" aria-labelledby="hero-title">
-      <Image src="/conversation-hero.webp" alt="" fill sizes="(max-width: 740px) 100vw, 1200px" preload />
-      <div className="hero-overlay" />
-      <div className="hero-content">
-        <span className="hero-label"><span /> {account ? `WELCOME BACK, ${account.display_name.split(" ")[0].toUpperCase()}` : "18+ ONLY"}</span>
-        <h1 id="hero-title">Meet someone new,<br />face to face.</h1>
-        <p>Random video chat with people aged 18 and over. Free, instant and safe by design.</p>
-        <div className="hero-actions">
-          <Link href={start} className="button button-light button-large">{account ? "Start a video chat" : "Start chatting free"} <ArrowRight size={18} /></Link>
-          <Link href="/safety" className="hero-link"><ShieldCheck size={17} /> How we keep you safe</Link>
-        </div>
-        <ul className="hero-proof" aria-label="Highlights">
-          <li><Video size={15} /> Video</li><li><Mic size={15} /> Voice</li><li><MessageCircle size={15} /> Text</li><li><Lock size={15} /> No recordings</li>
-        </ul>
-      </div>
-    </section>
+    <StartCard />
 
     <section className="band" aria-labelledby="steps-title">
       <div className="section-heading center"><span className="eyebrow">How it works</span><h2 id="steps-title">Your next conversation in three steps</h2></div>

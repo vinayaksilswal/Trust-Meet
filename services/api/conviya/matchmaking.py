@@ -1,3 +1,4 @@
+import asyncio
 from datetime import timedelta
 import json
 from typing import Annotated, Literal
@@ -14,13 +15,19 @@ from .conversations import EligibleUser, Mode, activate, blocked, current_call, 
 from .eligibility import eligible
 from .identity import CurrentUser, Db, cookie_name
 from .models import Conversation, LoginSession, Participant, User
-from .runtime import cache, digest, now, throttle
+from .entitlements import premium_until
+from .runtime import cache, client_country, digest, now, throttle
 
 
 router = APIRouter(prefix="/matchmaking", tags=["matchmaking"])
 PREFIX = "conviya:queue:"
 LEASE_SECONDS = 15
 CANDIDATE_LIMIT = 64
+SIGNAL = PREFIX + "matched:"
+# A waiting search is held open briefly so a match reaches both people at once instead of
+# on the next poll. Each Redis wait stays below the client's 3 second socket timeout.
+WAIT_ROUNDS = 4
+WAIT_SECONDS = 2
 
 UPSERT = """
 local previous = redis.call('GET', KEYS[1])
@@ -65,6 +72,9 @@ class Search(SearchKey):
     auto_connect: bool = False
     test_partner_email: EmailStr | None = None
     country: Literal["", "IN"] = ""
+    # Paid hard filters: the other person must match exactly. Both sides' filters apply.
+    want_gender: Literal["", "male", "female"] = ""
+    want_region: Annotated[str, StringConstraints(pattern=r"^([A-Z]{2})?$")] = ""
     language: Annotated[str, StringConstraints(strip_whitespace=True, max_length=24)] = ""
     interests: list[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]] = Field(
         default_factory=list, max_length=5,
@@ -82,7 +92,34 @@ def compatible(left, right):
     for field in ("country", "language"):
         if left[field] and right[field] and left[field] != right[field]:
             return False
+    for one, other in ((left, right), (right, left)):
+        if one.get("want_gender") and other.get("gender") != one["want_gender"]:
+            return False
+        if one.get("want_region") and other.get("region") != one["want_region"]:
+            return False
     return not left["interests"] or not right["interests"] or bool(set(left["interests"]) & set(right["interests"]))
+
+
+async def signal_match(user_id: UUID):
+    try:
+        async with cache.pipeline(transaction=True) as pipe:
+            await pipe.lpush(SIGNAL + str(user_id), "1").expire(SIGNAL + str(user_id), 30).execute()
+    except RedisError:
+        pass  # The waiting person still finds the match on their next request.
+
+
+async def wait_for_match(request: Request, user_id: UUID) -> bool:
+    for _ in range(WAIT_ROUNDS):
+        if await request.is_disconnected():
+            return False
+        try:
+            if await cache.blpop([SIGNAL + str(user_id)], timeout=WAIT_SECONDS):
+                return True
+        except RedisError:
+            # Keep the polling pace steady when Redis cannot block.
+            await asyncio.sleep(1.5)
+            return False
+    return False
 
 
 async def recently_connected(db: Db, user_id: UUID, candidate_id: UUID):
@@ -105,8 +142,9 @@ async def queued_candidates(user_id: UUID, own):
     candidates = [(UUID(value), json.loads(payload)) for value, payload in zip(ids, payloads) if payload]
     results = [(identifier, entry) for identifier, entry in candidates
                if entry.get("queue", entry["mode"]) == queue and (queue != own["mode"] or compatible(own, entry))]
+    # Premium searchers are matched first, then the people who share the most interests.
     return sorted(results, key=lambda item: (
-        -len(set(own["interests"]) & set(item[1]["interests"])), item[1]["joined_at"]
+        not item[1].get("priority"), -len(set(own["interests"]) & set(item[1]["interests"])), item[1]["joined_at"]
     ))
 
 
@@ -136,7 +174,10 @@ async def reserve(db: Db, user_id: UUID, candidate_id: UUID, entry, mode: Mode, 
 async def search(payload: Search, request: Request, user: EligibleUser, db: Db):
     if not settings.enable_matchmaking:
         raise HTTPException(503, "Matchmaking is currently unavailable.")
-    await throttle("queue", str(user.id), 60, 60)
+    await throttle("queue", str(user.id), 120, 60)
+    premium = await premium_until(db, user.id) is not None
+    if (payload.want_gender or payload.want_region) and not premium:
+        raise HTTPException(402, "Gender and region filters need a premium pass.")
     queue = payload.mode
     if payload.test_partner_email:
         email, partner = user.email.casefold(), payload.test_partner_email.casefold()
@@ -154,6 +195,8 @@ async def search(payload: Search, request: Request, user: EligibleUser, db: Db):
         "search_id": str(payload.search_id), "mode": payload.mode, "queue": queue, "country": payload.country,
         "auto_connect": payload.auto_connect,
         "language": payload.language.casefold(), "interests": sorted({value.casefold() for value in payload.interests}),
+        "gender": user.gender or "", "region": client_country(request),
+        "want_gender": payload.want_gender, "want_region": payload.want_region, "priority": premium,
         "session": digest(request.cookies[cookie_name]), "joined_at": now().timestamp(),
     }
     try:
@@ -174,10 +217,21 @@ async def search(payload: Search, request: Request, user: EligibleUser, db: Db):
                 await delete_entry(user.id, payload)
                 await delete_entry(candidate_id, SearchKey(search_id=candidate["search_id"], mode=payload.mode))
                 await db.commit()
+                await signal_match(candidate_id)
                 return {"waiting": False, "conversation": await describe(db, call, user.id)}
         await db.commit()
+        if payload.start:
+            await cache.delete(SIGNAL + str(user.id))
     except RedisError as err:
         raise HTTPException(503, "Matchmaking is temporarily unavailable.") from err
+    # Committing above released the database connection and the transition lock while we wait.
+    if not payload.start and await wait_for_match(request, user.id):
+        call = await current_call(db, user.id)
+        if call:
+            result = {"waiting": False, "conversation": await describe(db, call, user.id)}
+            await db.rollback()
+            return result
+        await db.rollback()
     return {"waiting": True, "conversation": None}
 
 

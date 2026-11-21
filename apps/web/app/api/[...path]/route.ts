@@ -4,7 +4,7 @@ import type { NextRequest } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 20;
 
-const routes = new Set(["auth", "billing", "conversations", "eligibility", "matchmaking", "me", "health", "ready", "rooms"]);
+const routes = new Set(["auth", "billing", "conversations", "eligibility", "matchmaking", "me", "health", "presence", "profile", "ready", "rooms"]);
 const maxBodyBytes = 16_384;
 // Razorpay webhook payloads are larger than browser requests and carry their own signature.
 const webhookBodyBytes = 262_144;
@@ -62,6 +62,8 @@ async function proxy(request: NextRequest, { params }: { params: Promise<{ path:
   if (secret) headers.set("x-trust-meet-proxy-key", secret);
   const ip = request.headers.get("x-vercel-forwarded-for");
   if (process.env.VERCEL === "1" && ip && isIP(ip)) headers.set("x-trust-meet-client-ip", ip);
+  const country = request.headers.get("x-vercel-ip-country");
+  if (process.env.VERCEL === "1" && country && /^[A-Z]{2}$/.test(country)) headers.set("x-trust-meet-client-country", country);
   const webhook = path.join("/") === "billing/webhook";
   for (const key of webhook ? ["content-type", ...webhookHeaders] : ["origin", "content-type", "cookie"]) {
     const value = request.headers.get(key);

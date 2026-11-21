@@ -34,190 +34,112 @@ async function twoAccounts(browser: Browser) {
 test("discovery is accessible and fits a mobile viewport", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /Meet someone new/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Talk With Strangers Online" })).toBeVisible();
   expect(await page.evaluate(() => window.isSecureContext && !!navigator.mediaDevices?.getUserMedia)).toBe(true);
   await page.getByRole("button", { name: "Open menu" }).click();
   await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
   await page.getByRole("button", { name: "Close menu" }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   expect((await new axe({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
-  await page.getByRole("link", { name: "Start chatting free" }).click();
+  await page.getByRole("button", { name: "Start Video Chat" }).click();
   await expect(page.getByRole("heading", { name: "Create an account" })).toBeVisible();
   await page.goto("/connect");
-  await expect(page.getByRole("heading", { name: "Sign in to connect" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Sign in to start" })).toBeVisible();
 });
 
-test("a fresh Random Connect search replaces a previous tab's lease", async ({ page, context }) => {
-  await provision(page, "QueueTester");
-  await page.goto("/connect");
-  await page.getByRole("radio", { name: "Text" }).check();
-  const firstStart = page.waitForRequest(outgoing => outgoing.url().endsWith("/matchmaking/search") &&
-    outgoing.method() === "POST" && outgoing.postDataJSON()?.start === true);
-  await page.getByRole("button", { name: "Find a match" }).click();
-  const oldSearch = (await firstStart).postDataJSON();
-  await expect(page.getByRole("heading", { name: "Looking for someone" })).toBeVisible();
+test("random video connects two people instantly and Next moves both on", async ({ browser }) => {
+  const { first, second, alice, amit } = await twoAccounts(browser);
+  try {
+    await Promise.all([alice.goto("/connect"), amit.goto("/connect")]);
+    await alice.getByRole("button", { name: /^Start/ }).click();
+    await expect(alice.getByText("Looking for someone to talk to…")).toBeVisible();
+    await expect(alice.getByTestId("local-preview")).toBeVisible();
+    await amit.keyboard.press("Space");
+    for (const page of [alice, amit]) {
+      await expect(page.getByText("Connected", { exact: true })).toBeVisible({ timeout: 20_000 });
+      const remote = page.getByTestId("remote-video").locator("video");
+      await expect(remote).toHaveCount(1, { timeout: 15_000 });
+      await expect.poll(() => remote.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBeGreaterThan(0);
+      await expect(page.getByTestId("remote-audio").locator("audio")).toHaveCount(1);
+      await expect(page.getByRole("button", { name: "Mute microphone" })).toBeEnabled();
+    }
+    await alice.getByRole("textbox", { name: "Message" }).fill("Hello from the other browser.");
+    await alice.getByRole("button", { name: "Send" }).click();
+    await expect(amit.getByRole("list", { name: "Conversation messages" })).toContainText("Hello from the other browser.");
 
-  const secondTab = await context.newPage();
-  await secondTab.goto("/connect");
-  await secondTab.getByRole("radio", { name: "Voice" }).check();
-  await secondTab.getByRole("button", { name: "Find a match" }).click();
-  await expect(secondTab.getByRole("heading", { name: "Looking for someone" })).toBeVisible();
+    await amit.getByRole("button", { name: "Report" }).click();
+    await amit.getByLabel("Report reason").selectOption("other");
+    await amit.getByRole("button", { name: "Submit report" }).click();
+    await expect(amit.getByText("Your report was sent to moderation.")).toBeVisible();
 
-  const origin = new URL(page.url()).origin;
-  const call = (action: string, data: unknown) =>
-    page.request.post(origin + "/api/matchmaking/" + action, { data, headers: { Origin: origin } });
-  const oldKey = { search_id: oldSearch.search_id, mode: oldSearch.mode };
-  expect((await call("search", oldKey)).status()).toBe(409);
-  expect((await call("search", oldSearch)).status()).toBe(409);
-  expect((await call("cancel", oldKey)).status()).toBe(204);
-  await page.bringToFront();
-  await expect(page.getByRole("button", { name: "Start a new search" })).toBeVisible();
-  const heartbeat = secondTab.waitForResponse(response => response.url().endsWith("/matchmaking/search") &&
-    response.request().method() === "POST" && !response.request().postDataJSON()?.start);
-  await secondTab.bringToFront();
-  expect((await heartbeat).status()).toBe(200);
-
-  await secondTab.reload();
-  await secondTab.getByRole("radio", { name: "Voice" }).check();
-  await secondTab.getByRole("button", { name: "Find a match" }).click();
-  await expect(secondTab.getByRole("heading", { name: "Looking for someone" })).toBeVisible();
-  await secondTab.getByRole("button", { name: "Leave queue" }).click();
-  await expect(secondTab.getByRole("button", { name: "Find a match" })).toBeVisible();
+    // Next ends the call for both people and puts both back in the queue.
+    await amit.getByRole("button", { name: /^Next/ }).click();
+    await expect(amit.getByText("Looking for someone to talk to…")).toBeVisible({ timeout: 10_000 });
+    await expect(alice.getByText("Looking for someone to talk to…")).toBeVisible({ timeout: 10_000 });
+    await amit.getByRole("button", { name: /^Stop/ }).click();
+    await alice.keyboard.press("Escape");
+    for (const page of [alice, amit]) await expect(page.getByRole("button", { name: /^Start/ })).toBeVisible();
+  } finally {
+    await Promise.all([first.close(), second.close()]);
+  }
 });
 
-test("the Random Connect studio supports a local camera preview and mobile layout", async ({ page }) => {
-  await provision(page, "CameraTester");
+test("random text chat connects without a camera", async ({ browser }) => {
+  const { first, second, alice, amit } = await twoAccounts(browser);
+  try {
+    await Promise.all([alice.goto("/connect?mode=text"), amit.goto("/connect?mode=text")]);
+    await alice.getByRole("button", { name: "Start chat" }).click();
+    await amit.getByRole("button", { name: "Start chat" }).click();
+    for (const page of [alice, amit]) await expect(page.getByText("Connected", { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(alice.getByRole("button", { name: "Mute microphone" })).toHaveCount(0);
+    await amit.getByRole("textbox", { name: "Message" }).fill("Text only works too.");
+    await amit.getByRole("button", { name: "Send" }).click();
+    await expect(alice.getByRole("list", { name: "Conversation messages" })).toContainText("Text only works too.");
+    await alice.getByRole("button", { name: /^Stop/ }).click();
+  } finally {
+    await Promise.all([first.close(), second.close()]);
+  }
+});
+
+test("random video needs device access and filters need a pass", async ({ page }) => {
+  await page.addInitScript(() => {
+    const state = window as typeof window & { allowTestMedia: boolean };
+    state.allowTestMedia = false;
+    const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = constraints =>
+      state.allowTestMedia ? getUserMedia(constraints) : Promise.reject(new DOMException("Denied", "NotAllowedError"));
+  });
+  await provision(page, "FilterTester");
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/connect");
+  const stranger = page.getByRole("region", { name: "Stranger", exact: true });
   const local = page.getByRole("region", { name: "You", exact: true });
-  const remote = page.getByRole("region", { name: "Your match", exact: true });
-  const chat = page.getByRole("complementary", { name: "Conversation chat" });
-  await Promise.all([expect(remote).toBeVisible(), expect(local).toBeVisible(), expect(chat).toBeVisible()]);
-  const [remoteBox, localBox, chatBox] = await Promise.all([remote.boundingBox(), local.boundingBox(), chat.boundingBox()]);
-  expect(remoteBox!.x).toBeLessThan(localBox!.x);
-  expect(localBox!.x).toBeLessThan(chatBox!.x);
-  await local.getByRole("button", { name: "Preview camera" }).click();
-  const preview = local.locator("video");
-  await expect.poll(() => preview.evaluate(element => element.videoWidth)).toBeGreaterThan(0);
-  const camera = await preview.evaluateHandle(video => (video.srcObject as MediaStream).getVideoTracks()[0]);
-  await local.getByRole("button", { name: "Stop preview" }).click();
-  expect(await camera.evaluate(track => track.readyState)).toBe("ended");
+  const panel = page.getByRole("complementary", { name: "Conversation panel" });
+  const [strangerBox, localBox, panelBox] = await Promise.all([stranger.boundingBox(), local.boundingBox(), panel.boundingBox()]);
+  expect(strangerBox!.x).toBeLessThan(localBox!.x);
+  expect(localBox!.x).toBeLessThan(panelBox!.x);
+  await expect(panel).toContainText("You must be 18+");
+
+  await page.getByRole("button", { name: /^Start/ }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Allow camera and microphone access" })).toBeVisible();
+  await expect(page.getByText("Looking for someone to talk to…")).toHaveCount(0);
+
+  await page.getByRole("button", { name: /Region/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Unlock Region Filter" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("7 DAYS")).toBeVisible();
+  await expect(dialog.getByText("BEST VALUE")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  const origin = new URL(page.url()).origin;
+  const filtered = await page.request.post(origin + "/api/matchmaking/search", { headers: { Origin: origin },
+    data: { search_id: randomUUID(), mode: "video", start: true, want_gender: "female" } });
+  expect(filtered.status()).toBe(402);
+
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole("button", { name: "Find a match" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Start/ })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   expect((await new axe({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
-});
-
-for (const mode of ["Text", "Voice", "Video"] as const) {
-  test(`two signed-in accounts exchange ${mode.toLowerCase()} through LiveKit`, async ({ browser }) => {
-    const { first, second, alice, amit } = await twoAccounts(browser);
-    try {
-      await alice.goto("/connect");
-      await alice.getByRole("radio", { name: mode }).check();
-      await alice.getByRole("button", { name: "Create invitation" }).click();
-      const link = await alice.getByLabel("Invitation link").inputValue();
-      await amit.goto(link);
-      await amit.getByRole("button", { name: "Accept invitation and join" }).click();
-      await expect(amit.getByText("Connected", { exact: true })).toBeVisible({ timeout: 20_000 });
-      await expect(alice.getByText("Connected", { exact: true })).toBeVisible({ timeout: 20_000 });
-
-      await alice.getByRole("textbox", { name: "Message", exact: true }).fill("Hello from the other browser.");
-      await alice.getByRole("button", { name: "Send", exact: true }).click();
-      await expect(amit.getByRole("list", { name: "Conversation messages" })).toContainText("Hello from the other browser.");
-      if (mode === "Text") await expect(alice.getByRole("button", { name: "Enable microphone" })).toHaveCount(0);
-      if (mode !== "Text") {
-        await alice.getByRole("button", { name: "Enable microphone" }).click();
-        await expect(alice.getByRole("button", { name: "Mute microphone" })).toBeEnabled({ timeout: 15_000 });
-        const audio = amit.getByTestId("remote-audio").locator("audio");
-        await expect(audio).toHaveCount(1, { timeout: 15_000 });
-        await expect.poll(() => audio.evaluate(element => (element.srcObject as MediaStream | null)?.getAudioTracks()[0]?.readyState)).toBe("live");
-      }
-      if (mode === "Video") {
-        await alice.getByRole("button", { name: "Enable camera" }).click();
-        const local = alice.getByTestId("local-preview").locator("video");
-        const remote = amit.getByTestId("remote-video").locator("video");
-        await expect(local).toHaveCount(1, { timeout: 15_000 });
-        await expect(remote).toHaveCount(1, { timeout: 15_000 });
-        await expect.poll(() => remote.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBeGreaterThan(0);
-        await amit.reload();
-        await expect(amit.getByText("Connected", { exact: true })).toBeVisible({ timeout: 20_000 });
-        await expect(remote).toHaveCount(1, { timeout: 15_000 });
-        await expect.poll(() => remote.evaluate(element => (element as HTMLVideoElement).videoWidth)).toBeGreaterThan(0);
-      }
-      await amit.getByRole("button", { name: "Report", exact: true }).click();
-      await amit.getByLabel("Report reason").selectOption("other");
-      await amit.getByRole("button", { name: "Submit report" }).click();
-      await expect(amit.getByText("Your report was saved.")).toBeVisible();
-      await amit.getByRole("button", { name: "End conversation" }).click();
-      await expect(alice.getByRole("button", { name: "Create invitation" })).toBeVisible();
-    } finally {
-      await Promise.all([first.close(), second.close()]);
-    }
-  });
-}
-
-test("Random Connect waits for mutual consent and can skip to a fresh search", async ({ browser }) => {
-  const { first, second, alice, amit } = await twoAccounts(browser);
-  try {
-    await Promise.all([alice.goto("/connect"), amit.goto("/connect")]);
-    await Promise.all([alice.getByRole("radio", { name: "Text" }).check(), amit.getByRole("radio", { name: "Text" }).check()]);
-    await alice.getByRole("button", { name: "Find a match" }).click();
-    await expect(alice.getByRole("heading", { name: "Looking for someone" })).toBeVisible();
-    await amit.getByRole("button", { name: "Find a match" }).click();
-    await alice.getByRole("button", { name: "Accept match" }).click();
-    await expect(alice.getByText("Waiting for the other participant to accept…")).toBeVisible();
-    await amit.getByRole("button", { name: "Accept match" }).click();
-    await expect(alice.getByText("Connected", { exact: true })).toBeVisible({ timeout: 20_000 });
-    await expect(amit.getByText("Connected", { exact: true })).toBeVisible({ timeout: 20_000 });
-    await amit.getByRole("button", { name: "Next", exact: true }).click();
-    await expect(amit.getByRole("heading", { name: "Looking for someone" })).toBeVisible();
-    await amit.getByRole("button", { name: "Leave queue" }).click();
-    await expect(amit.getByRole("button", { name: "Find a match" })).toBeVisible();
-  } finally {
-    await Promise.all([first.close(), second.close()]);
-  }
-});
-
-test("Random Connect asks for both devices and publishes only after both people accept", async ({ browser }) => {
-  const { first, second, alice, amit } = await twoAccounts(browser);
-  try {
-    await alice.addInitScript(() => {
-      const state = window as typeof window & { allowTestMedia: boolean; testMediaRequests: MediaStreamConstraints[] };
-      state.allowTestMedia = false;
-      state.testMediaRequests = [];
-      const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-      navigator.mediaDevices.getUserMedia = constraints => {
-        state.testMediaRequests.push(constraints);
-        return state.allowTestMedia ? getUserMedia(constraints) : Promise.reject(new DOMException("Denied", "NotAllowedError"));
-      };
-    });
-    await Promise.all([alice.goto("/connect"), amit.goto("/connect")]);
-    await alice.getByRole("button", { name: "Find a match" }).click();
-    await expect(alice.getByRole("alert").filter({ hasText: "Allow camera and microphone access" })).toBeVisible();
-    await expect(alice.getByRole("heading", { name: "Looking for someone" })).toHaveCount(0);
-    const mediaControl = alice.evaluate(() => {
-      const state = window as typeof window & { allowTestMedia: boolean; testMediaRequests: MediaStreamConstraints[] };
-      state.allowTestMedia = true;
-      return state.testMediaRequests;
-    });
-    expect(await mediaControl).toContainEqual({ video: true, audio: true });
-    await alice.getByRole("button", { name: "Find a match" }).click();
-    await expect(alice.getByRole("heading", { name: "Looking for someone" })).toBeVisible();
-    await amit.getByRole("button", { name: "Find a match" }).click();
-    await alice.getByRole("button", { name: "Accept match" }).click();
-    await expect(alice.getByText("Waiting for the other participant to accept…")).toBeVisible();
-    await expect(alice.getByTestId("local-preview")).toHaveCount(0);
-    await amit.getByRole("button", { name: "Accept match" }).click();
-    for (const page of [alice, amit]) {
-      await expect(page.getByRole("button", { name: "Mute microphone" })).toBeEnabled({ timeout: 20_000 });
-      await expect(page.getByRole("button", { name: "Disable camera" })).toBeEnabled();
-      await expect(page.getByTestId("remote-video").locator("video")).toHaveCount(1);
-      await expect(page.getByTestId("remote-audio").locator("audio")).toHaveCount(1);
-    }
-    await alice.getByRole("button", { name: "End conversation" }).click();
-  } finally {
-    await Promise.all([first.close(), second.close()]);
-  }
 });
 
 test("private room hosts can approve, mute, and remove guests in a group LiveKit call", async ({ browser }) => {

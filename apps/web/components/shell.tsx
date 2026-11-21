@@ -8,6 +8,7 @@ import { useAccount } from "@/lib/client";
 import { legalLinks } from "@/lib/pages";
 import { site } from "@/lib/site";
 import { ConsentBanner } from "./ads";
+import { OnlineBadge } from "@/lib/presence";
 
 export const modules = [
   { slug: "connect", title: "Random Connect", description: "Meet someone new in a one-to-one conversation over video, voice, or text.", icon: Shuffle, theme: "green", action: "Start a conversation", live: true },
@@ -71,6 +72,7 @@ export function Shell({ children }: { children: ReactNode }) {
           </>}
         </div>
         <div className="topbar-right">
+          <OnlineBadge />
           <Link className="top-safety icon-button" aria-label="Safety Center" href="/safety"><ShieldCheck size={20} /></Link>
           <span className="top-divider" aria-hidden="true" />
           {profile ? <Link className="profile-link" href="/account" aria-label="Account settings">

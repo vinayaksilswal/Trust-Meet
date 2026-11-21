@@ -9,6 +9,7 @@ import Script from "next/script";
 import { useState } from "react";
 import { api, errorMessage, useAccount } from "@/lib/client";
 import { site } from "@/lib/site";
+import { PassCards } from "./premium";
 
 type RazorpayResponse = { razorpay_payment_id: string; razorpay_subscription_id: string; razorpay_signature: string };
 type RazorpayInstance = { open(): void; on(event: string, handler: () => void): void };
@@ -33,6 +34,10 @@ export function Pricing() {
       <h1>Free to talk. Plus to go ad-free.</h1>
       <p>Every core feature is free. Plus removes ads and funds the moderation that keeps conversations safe.</p>
     </div>
+    <section className="pass-section" aria-labelledby="pass-title">
+      <h2 id="pass-title">Premium passes · Gender filter, region filter and priority matching</h2>
+      <PassCards />
+    </section>
     <div className="plan-grid">
       <section className="plan-card">
         <h2>Free</h2>

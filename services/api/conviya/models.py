@@ -11,7 +11,10 @@ class Base(DeclarativeBase):
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = (sa.CheckConstraint("status IN ('active', 'suspended')", name="user_status"),)
+    __table_args__ = (
+        sa.CheckConstraint("status IN ('active', 'suspended')", name="user_status"),
+        sa.CheckConstraint("gender IN ('male', 'female', 'other')", name="user_gender"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     email: Mapped[str] = mapped_column(sa.String(254), unique=True)
@@ -19,6 +22,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(sa.Text)
     email_verified_at: Mapped[datetime | None]
     status: Mapped[str] = mapped_column(sa.String(12), server_default="active")
+    gender: Mapped[str | None] = mapped_column(sa.String(8))
     created_at: Mapped[datetime] = mapped_column(server_default=sa.func.now())
 
 
@@ -142,6 +146,26 @@ class Subscription(Base):
     current_end: Mapped[datetime | None]
     cancel_requested_at: Mapped[datetime | None]
     updated_at: Mapped[datetime] = mapped_column(server_default=sa.func.now())
+
+
+class PremiumAccess(Base):
+    __tablename__ = "premium_access"
+
+    user_id: Mapped[UUID] = mapped_column(sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    ends_at: Mapped[datetime]
+
+
+class PassOrder(Base):
+    __tablename__ = "pass_orders"
+
+    order_id: Mapped[str] = mapped_column(sa.String(40), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(sa.ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    pass_id: Mapped[str] = mapped_column(sa.String(8))
+    days: Mapped[int]
+    amount_paise: Mapped[int]
+    created_at: Mapped[datetime] = mapped_column(server_default=sa.func.now())
+    paid_at: Mapped[datetime | None]
+    payment_id: Mapped[str | None] = mapped_column(sa.String(40), unique=True)
 
 
 class BillingEvent(Base):

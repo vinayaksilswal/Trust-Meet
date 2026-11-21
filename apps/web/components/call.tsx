@@ -3,16 +3,15 @@
 import { media, message, type Conversation } from "@conviya/contracts";
 import { Field, Notice } from "@conviya/ui";
 import {
-  ConnectionState, Room, RoomEvent, Track,
-  type LocalTrackPublication, type RemoteTrack, type RemoteParticipant,
+  ConnectionState, Room, RoomEvent, Track, createLocalTracks,
+  type LocalTrack, type LocalTrackPublication, type RemoteTrack, type RemoteParticipant,
 } from "livekit-client";
-import { Flag, Mic, MicOff, PhoneOff, Video, VideoOff } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Ban, Flag, Mic, MicOff, PhoneOff, Send, Video, VideoOff } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { z } from "zod";
 import { api, errorMessage } from "@/lib/client";
 import { connectRealtimeKit, type CallControls } from "./realtimekit-call";
 import { RandomStudio, RandomTile } from "./random-studio";
-import { RandomControls } from "./random-controls";
 
 const chatTopic = "conviya.chat";
 const chatMessage = z.string().trim().min(1).max(500);
@@ -27,9 +26,11 @@ type Props = {
   nextLabel?: string;
   autoStartMedia?: boolean;
   randomVideo?: boolean;
+  onPeerLeft?: () => void;
+  studioControls?: ReactNode;
 };
 
-export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", group = false, autoStartMedia = false, randomVideo = false }: Props) {
+export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", group = false, autoStartMedia = false, randomVideo = false, onPeerLeft, studioControls }: Props) {
   const [connection, setConnection] = useState<ConnectionState>(ConnectionState.Connecting);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
@@ -50,6 +51,8 @@ export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", g
   const preview = useRef<HTMLDivElement>(null);
   const audio = useRef<HTMLDivElement>(null);
   const history = useRef<HTMLUListElement>(null);
+  const peerLeft = useRef(onPeerLeft);
+  peerLeft.current = onPeerLeft;
   const callPath = (group ? "/rooms/" : "/conversations/") + call.id;
   const connected = connection === ConnectionState.Connected;
   const seconds = Math.max(0, Math.ceil((Date.parse(call.expires_at) - clock) / 1000));
@@ -103,7 +106,11 @@ export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", g
     });
     instance.on(RoomEvent.ConnectionStateChanged, setConnection);
     instance.on(RoomEvent.ParticipantConnected, updatePeers);
-    instance.on(RoomEvent.ParticipantDisconnected, updatePeers);
+    instance.on(RoomEvent.ParticipantDisconnected, () => {
+      updatePeers();
+      // Ask the server straight away instead of waiting for the next status poll.
+      if (!controller.signal.aborted) peerLeft.current?.();
+    });
     instance.on(RoomEvent.AudioPlaybackStatusChanged, () => setAudioBlocked(!instance.canPlaybackAudio));
     instance.on(RoomEvent.DataReceived, (bytes: Uint8Array, participant?: RemoteParticipant, _kind?: unknown, topic?: string) => {
       if (!participant || topic !== chatTopic || bytes.length > 2000) return;
@@ -111,11 +118,19 @@ export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", g
       if (parsed.success) setChat(items => [...items.slice(-199), { mine: false, text: parsed.data, author: participant.name }]);
     });
 
+    const startMedia = autoStartMedia && (randomVideo || retry === 0) && call.mode !== "text";
+    // Open the camera and microphone while the token request and signalling run.
+    const early: Promise<LocalTrack[] | null> = startMedia
+      ? createLocalTracks({ audio: true, video: call.mode === "video" }).catch(() => null)
+      : Promise.resolve(null);
+    const stopEarly = () => void early.then(tracks => tracks?.forEach(track => track.stop()));
+
     async function connect() {
       try {
         const credential = await api(callPath + "/media", media, {}, controller.signal);
         if (controller.signal.aborted) return;
         if (credential.provider === "realtimekit") {
+          stopEarly();
           active = await connectRealtimeKit(credential.token, call.mode, controller.signal, {
             remote: remote.current, preview: preview.current, setConnection, setMic, setCamera, setConnectedPeer,
             setAudioBlocked, setChat,
@@ -134,10 +149,15 @@ export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", g
         }
         if (controller.signal.aborted) { await active.close(); return; }
         controls.current = active;
-        if (autoStartMedia && (randomVideo || retry === 0) && call.mode !== "text") {
+        if (startMedia) {
+          const ready = credential.provider === "realtimekit" ? null : await early;
+          const publish = (kind: Track.Kind, fallback: () => Promise<unknown>) => {
+            const track = ready?.find(item => item.kind === kind);
+            return track ? instance.localParticipant.publishTrack(track) : fallback();
+          };
           const results = await Promise.allSettled([
-            active.setMic(true),
-            ...(call.mode === "video" ? [active.setCamera(true)] : []),
+            publish(Track.Kind.Audio, () => active!.setMic(true)),
+            ...(call.mode === "video" ? [publish(Track.Kind.Video, () => active!.setCamera(true))] : []),
           ]);
           if (controller.signal.aborted) return;
           setMic(results[0].status === "fulfilled");
@@ -152,6 +172,7 @@ export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", g
           if (!controller.signal.aborted) setSpeakers(devices.filter(device => device.kind === "audiooutput" && device.deviceId));
         }
       } catch (cause) {
+        stopEarly();
         if (controller.signal.aborted) return;
         setConnection(ConnectionState.Disconnected);
         setError(cause instanceof Error ? cause.message : errorMessage(cause));
@@ -164,6 +185,7 @@ export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", g
     void connect();
     return () => {
       controller.abort();
+      stopEarly();
       instance.removeAllListeners();
       for (const element of elements) element.remove();
       if (controls.current === active) controls.current = null;
@@ -285,15 +307,43 @@ export function Call({ call, busy, onEnd, onBlock, onNext, nextLabel = "Next", g
     {safetyControls}
   </div>;
 
+  const status = connected ? (connectedPeer ? "Connected" : "Waiting for your match to join…") :
+    connection === ConnectionState.Disconnected ? "Disconnected" : "Connecting…";
+
+  const randomPanel = <div className="meet-panel">
+    <header className="meet-panel-head">
+      <div><h2>{call.partner ?? "Stranger"}</h2><p className={connectedPeer ? "meet-live" : undefined}>{status}</p></div>
+      <div className="meet-panel-actions">
+        {call.mode !== "text" && <button className="icon-button" disabled={!connected || controlBusy} onClick={() => void toggle("mic")}
+          aria-label={mic ? "Mute microphone" : "Unmute microphone"}>{mic ? <Mic size={18} /> : <MicOff size={18} />}</button>}
+        {call.mode === "video" && <button className="icon-button" disabled={!connected || controlBusy} onClick={() => void toggle("camera")}
+          aria-label={camera ? "Turn camera off" : "Turn camera on"}>{camera ? <Video size={18} /> : <VideoOff size={18} />}</button>}
+        <button className="icon-button" onClick={() => { setReportOpen(!reportOpen); setBlockOpen(false); }} aria-expanded={reportOpen} aria-label="Report"><Flag size={18} /></button>
+        <button className="icon-button" onClick={() => { setBlockOpen(!blockOpen); setReportOpen(false); }} aria-expanded={blockOpen} aria-label="Block"><Ban size={18} /></button>
+      </div>
+    </header>
+    {(error || reportSaved || audioBlocked || reportOpen || blockOpen) && <div className="meet-panel-notices">
+      {error && <Notice error>{error}</Notice>}
+      {reportSaved && <Notice>Thanks. Your report was sent to moderation.</Notice>}
+      {audioBlocked && <button className="button button-outline button-small" onClick={() => void controls.current?.startAudio().then(() => setAudioBlocked(false))}>Tap to hear your match</button>}
+      {(reportOpen || blockOpen) && safetyControls}
+    </div>}
+    <ul className="meet-chat" aria-label="Conversation messages" aria-live="polite" ref={history}>
+      {chat.length === 0 && <li className="meet-chat-empty">Say hi to start the conversation.</li>}
+      {chat.map((item, index) => <li key={index} className={item.mine ? "mine" : undefined}><strong>{item.mine ? "You" : "Stranger"}</strong>{item.text}</li>)}
+    </ul>
+    <form className="meet-compose" onSubmit={event => { event.preventDefault(); void send(); }}>
+      <input value={draft} placeholder="Type a message…" maxLength={500} aria-label="Message"
+        disabled={!connected || !connectedPeer} onChange={event => setDraft(event.target.value)} />
+      <button disabled={!connected || !connectedPeer || !draft.trim()} aria-label="Send"><Send size={18} /></button>
+    </form>
+  </div>;
+
   return <>
-    <RandomStudio controls={<>{callStatus}{randomVideo ? <>
-      <RandomControls busy={busy} onNext={onNext ?? onEnd} />
-      {audioBlocked && <p onClick={() => void controls.current?.startAudio().then(() => setAudioBlocked(false))}>Tap here to hear your match.</p>}
-    </> : <>{mediaControls}{safetyControls}</>}</>} side={
-      <div className="random-active-chat">{chatPanel}</div>
-    }>
-      <RandomTile name={call.partner ?? "Your match"} mode={call.mode}
-        hint={call.mode === "video" ? "Waiting for their camera" : connectedPeer ? "Your match is here" : "Waiting for your match"}
+    <RandomStudio controls={randomVideo && studioControls ? studioControls : <>{callStatus}{mediaControls}{safetyControls}</>}
+      side={randomVideo ? randomPanel : <div className="meet-panel">{chatPanel}</div>}>
+      <RandomTile name={call.partner ?? "Stranger"} mode={call.mode}
+        hint={call.mode === "video" ? (connectedPeer ? "Waiting for their camera" : "Connecting to your match…") : connectedPeer ? "Your match is here" : "Waiting for your match"}
         feed={call.mode === "video" ? remote : undefined} />
       <RandomTile name="You" mode={call.mode} local
         hint={call.mode === "video" ? "Your camera is off" : call.mode === "audio" ? (mic ? "Microphone on" : "Microphone off") : "Text conversation"}
