@@ -595,3 +595,16 @@ input, select { width: 100%; color: var(--ink); border: 1px solid #bfcfc8; paddi
   .mod-people, .mod-actions { grid-template-columns: 1fr; }
   .mod-table { display: block; overflow-x: auto; }
 }
+
+/* Expert Sessions (coming soon) */
+.experts-hero { max-width: 760px; margin: 12px auto 0; text-align: center; padding: clamp(14px, 3vw, 28px) 0; }
+.experts-hero .back-link { display: flex; width: fit-content; align-items: center; gap: 7px; margin: 0 auto 14px; color: #215c49; font-weight: 700; }
+.coming-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #79551e; background: #f9efda; border-radius: 99px; padding: 6px 12px; margin-bottom: 14px; }
+.experts-hero h1 { font-size: clamp(30px, 4vw, 46px); font-weight: 840; line-height: 1.1; margin-bottom: 12px; }
+.experts-lead { color: var(--muted); font-size: clamp(15px, 1.7vw, 18px); line-height: 1.6; max-width: 620px; margin: 0 auto; }
+.experts-cta-row { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 22px; }
+.experts-note { color: var(--muted); font-size: 13px; margin-top: 14px; }
+.cat-grid { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; }
+.cat-chip { display: inline-flex; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--border); border-radius: 99px; padding: 10px 16px; font-weight: 700; font-size: 14px; color: var(--ink); }
+.cat-chip svg { color: #1f6c53; }
+@media (max-width: 600px) { .experts-cta-row .button { width: 100%; justify-content: center; } }

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { AdSlot } from "@/components/ads";
 import { closedModules, pages } from "@/lib/pages";
@@ -25,12 +25,8 @@ export default async function Section({ params }: Params) {
   const page = pages[section];
   const closed = closedModules[section as keyof typeof closedModules];
   if (!page && !closed) notFound();
-  if (!page) return <article className="content-panel">
-    <Link className="back-link" href="/"><ArrowLeft size={16} /> Home</Link>
-    <h1>{closed}</h1>
-    <p>This space is coming soon. Try Random Connect or Private Rooms in the meantime.</p>
-    <Link className="button button-primary" href="/connect">Start a conversation</Link>
-  </article>;
+  // The old category placeholders now live inside Expert Sessions.
+  if (!page) redirect("/experts");
   return <>
     <article className="content-panel doc">
       <Link className="back-link" href="/"><ArrowLeft size={16} /> Home</Link>
