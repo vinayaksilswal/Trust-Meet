@@ -16,12 +16,27 @@ function visitorId() {
   }
 }
 
-// Each open tab reports itself every 20 seconds; the server counts tabs seen in the last 45.
-export function useOnline() {
+// Register this tab as online roughly every 15 seconds; the server counts tabs seen in the last 45.
+// The POST also keeps us counted while the tab is in the background.
+function useHeartbeat() {
   return useQuery({
-    queryKey: ["presence"],
+    queryKey: ["presence", "heartbeat"],
     queryFn: ({ signal }) => api("/presence", online, { visitor: visitorId() }, signal),
-    refetchInterval: 20_000, refetchIntervalInBackground: true, staleTime: 15_000, retry: false,
+    refetchInterval: 15_000, refetchIntervalInBackground: true, staleTime: 15_000, retry: false,
+  });
+}
+
+// Read the live count every second so the badge updates on its own, without a refresh. This GET
+// is a cheap Redis read; the heartbeat above is what actually records presence.
+export function useOnline() {
+  useHeartbeat();
+  return useQuery({
+    queryKey: ["presence", "count"],
+    queryFn: ({ signal }) => api("/presence", online, undefined, signal),
+    refetchInterval: 1000,
+    staleTime: 0,
+    retry: false,
+    placeholderData: previous => previous,
   });
 }
 

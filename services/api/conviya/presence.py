@@ -18,6 +18,9 @@ router = APIRouter(prefix="/presence", tags=["presence"])
 KEY = "conviya:presence"
 COUNT_KEY = "conviya:presence:count"
 WINDOW = 45
+# Clients read the count about once a second; a short cache keeps that near-live while still
+# collapsing bursts of reads into one Redis count.
+COUNT_TTL = 1
 BEAT = """
 local time = redis.call('TIME')
 local current = tonumber(time[1])
@@ -44,7 +47,7 @@ async def online_count() -> int:
     if cached is not None:
         return int(cached)
     count = int(await cache.eval(COUNT, 1, KEY, WINDOW))
-    await cache.set(COUNT_KEY, count, ex=5)
+    await cache.set(COUNT_KEY, count, ex=COUNT_TTL)
     return count
 
 
@@ -58,11 +61,11 @@ async def online():
 
 @router.post("")
 async def heartbeat(payload: Heartbeat, request: Request):
-    # Tabs beat every 20 seconds. The per-address limit stops one client inflating the count.
+    # Tabs beat about every 15 seconds. The per-address limit stops one client inflating the count.
     await throttle("presence", client_key(request), 30, 60)
     try:
         count = await cache.eval(BEAT, 1, KEY, str(payload.visitor), WINDOW)
-        await cache.set(COUNT_KEY, count, ex=5)
+        await cache.set(COUNT_KEY, count, ex=COUNT_TTL)
     except RedisError as err:
         raise HTTPException(503, "Presence is temporarily unavailable.") from err
     return {"online": int(count)}
