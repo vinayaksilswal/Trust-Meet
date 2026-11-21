@@ -6,17 +6,14 @@ from email_validator import validate_email
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 
-from .config import settings
-from .conversations import current_call, finish, lock_transitions
 from .event_loop import factory
-from .models import AccountSuspension, AgeVerificationSession, LoginSession, Report, User
-from .rooms_models import PrivateRoom, RoomMember, RoomReport
-from .runtime import Sessions, engine, now
+from .moderation import suspend_user
+from .models import Report, StaffRole, User
+from .rooms_models import RoomReport
+from .runtime import Sessions, engine
 
 
 async def manage(args):
-    if settings.environment != "production":
-        raise SystemExit("Configure production moderation before using these commands.")
     async with Sessions() as db:
         if args.action == "reports":
             for kind, model in (("conversation", Report), ("room", RoomReport)):
@@ -34,27 +31,23 @@ async def manage(args):
         reviewer = args.reviewer.strip()
         if not reviewer or len(reviewer) > 100:
             raise SystemExit("Supply the operator account identifier as --reviewer.")
-        await lock_transitions(db)
         user = await db.scalar(select(User).where(User.email == email).with_for_update())
         if not user:
             raise SystemExit("No account found for this address.")
-        user.status = "suspended"
-        await db.execute(insert(AccountSuspension).values(user_id=user.id, suspended_by=reviewer)
-                         .on_conflict_do_nothing())
-        await db.execute(delete(LoginSession).where(LoginSession.user_id == user.id))
-        await db.execute(delete(AgeVerificationSession).where(AgeVerificationSession.user_id == user.id))
-        call = await current_call(db, user.id)
-        if call:
-            await finish(db, call)
-        rooms = await db.execute(select(PrivateRoom, RoomMember).join(RoomMember).where(
-            RoomMember.user_id == user.id, PrivateRoom.closed_at.is_(None), PrivateRoom.ends_at > now()
-        ).order_by(PrivateRoom.id).with_for_update(of=PrivateRoom))
-        for room, member in rooms:
-            if room.owner_id == user.id:
-                room.closed_at = now()
-            else:
-                member.state = "removed"
-                member.updated_at = now()
+        if args.action == "grant":
+            # Confirm the person controls this account before granting: sign-up does not verify email.
+            values = {"role": args.role, "granted_by": reviewer}
+            await db.execute(insert(StaffRole).values(user_id=user.id, **values)
+                             .on_conflict_do_update(index_elements=[StaffRole.user_id], set_=values))
+            await db.commit()
+            print(f"Granted {args.role}. The console is at /moderation.")
+            return
+        if args.action == "revoke":
+            await db.execute(delete(StaffRole).where(StaffRole.user_id == user.id))
+            await db.commit()
+            print("Staff access removed.")
+            return
+        await suspend_user(db, user, reviewer)
         await db.commit()
         print("Suspended. The media worker will revoke access.")
 
@@ -72,6 +65,13 @@ def main():
     command = actions.add_parser("suspend")
     command.add_argument("--email", required=True)
     command.add_argument("--reviewer", required=True)
+    grant = actions.add_parser("grant", help="Give an account access to the moderation console")
+    grant.add_argument("--email", required=True)
+    grant.add_argument("--reviewer", required=True)
+    grant.add_argument("--role", choices=["moderator", "admin"], default="moderator")
+    revoke = actions.add_parser("revoke", help="Remove moderation console access")
+    revoke.add_argument("--email", required=True)
+    revoke.add_argument("--reviewer", required=True)
     actions.add_parser("reports")
     with asyncio.Runner(loop_factory=factory) as runner:
         runner.run(run(parser.parse_args()))

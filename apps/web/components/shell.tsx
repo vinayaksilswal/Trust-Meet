@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowUpRight, BriefcaseBusiness, Compass, Crown, HeartHandshake, LockKeyhole, Menu, MessageCircle, ShieldCheck, Sparkles, X, Activity, Shuffle } from "lucide-react";
+import { ArrowUpRight, BriefcaseBusiness, Compass, Crown, Gavel, HeartHandshake, LockKeyhole, Menu, MessageCircle, ShieldCheck, Sparkles, X, Activity, Shuffle } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useAccount } from "@/lib/client";
 import { legalLinks } from "@/lib/pages";
@@ -34,7 +34,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const profile = account.data;
   const links = [{ href: "/", name: "Home", icon: Compass },
     ...modules.filter(({ live }) => live).map(({slug, title, icon}) => ({ href: "/" + slug, name: title, icon })),
-    { href: "/pricing", name: "Plans", icon: Crown }];
+    { href: "/pricing", name: "Plans", icon: Crown },
+    ...(profile?.moderator ? [{ href: "/moderation", name: "Moderation", icon: Gavel }] : [])];
   const upcoming = modules.filter(({ live }) => !live);
   return <div className={studio ? "shell shell-studio" : "shell"}>
     <a className="skip-link" href="#main">Skip to content</a>

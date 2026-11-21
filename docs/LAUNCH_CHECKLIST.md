@@ -12,7 +12,7 @@ Code changes cannot cover these items. Complete them before you point a domain a
 ## Child safety and moderation
 
 - The 18+ check is a self-reported date of birth. Random video chat services have been sued and shut down over minors and abuse. Before public traffic, add stronger age assurance and staffed moderation, and decide how you will detect nudity in video.
-- Build the moderation console (report queue, suspend and appeal). Today reports are listed and accounts are suspended with the `conviya.moderation_ops` CLI.
+- Grant moderator accounts with `python -m conviya.moderation_ops grant` and staff the queue at `/moderation`, starting with suspected-minor reports.
 - Write a procedure for preserving and reporting child sexual abuse material to Indian authorities (cybercrime.gov.in, 1930), as POCSO requires.
 
 ## Ads

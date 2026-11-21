@@ -60,3 +60,6 @@ class RoomReport(Base):
     reporter_id: Mapped[UUID] = mapped_column(sa.ForeignKey("users.id"), primary_key=True)
     category: Mapped[str] = mapped_column(sa.String(24))
     created_at: Mapped[datetime] = mapped_column(server_default=sa.func.now(), index=True)
+    state: Mapped[str] = mapped_column(sa.String(12), server_default="open")
+    reviewed_by: Mapped[UUID | None] = mapped_column(sa.ForeignKey("users.id"))
+    reviewed_at: Mapped[datetime | None]

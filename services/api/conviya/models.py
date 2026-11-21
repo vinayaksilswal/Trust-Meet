@@ -187,3 +187,27 @@ class Report(Base):
     category: Mapped[str] = mapped_column(sa.String(24))
     state: Mapped[str] = mapped_column(sa.String(12), server_default="open")
     created_at: Mapped[datetime] = mapped_column(server_default=sa.func.now())
+    reviewed_by: Mapped[UUID | None] = mapped_column(sa.ForeignKey("users.id"))
+    reviewed_at: Mapped[datetime | None]
+
+
+class StaffRole(Base):
+    __tablename__ = "staff_roles"
+    __table_args__ = (sa.CheckConstraint("role IN ('moderator', 'admin')", name="staff_role"),)
+
+    user_id: Mapped[UUID] = mapped_column(sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    role: Mapped[str] = mapped_column(sa.String(10))
+    granted_by: Mapped[str] = mapped_column(sa.String(100))
+    granted_at: Mapped[datetime] = mapped_column(server_default=sa.func.now())
+
+
+class ModerationAction(Base):
+    __tablename__ = "moderation_actions"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    moderator_id: Mapped[UUID] = mapped_column(sa.ForeignKey("users.id"))
+    action: Mapped[str] = mapped_column(sa.String(16))
+    subject_id: Mapped[UUID | None] = mapped_column(sa.ForeignKey("users.id"), index=True)
+    report_ref: Mapped[str | None] = mapped_column(sa.String(90))
+    note: Mapped[str] = mapped_column(sa.Text, server_default="")
+    created_at: Mapped[datetime] = mapped_column(server_default=sa.func.now(), index=True)

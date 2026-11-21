@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from redis.exceptions import RedisError
 
-from . import billing, conversations, presence, profile, eligibility, identity, matchmaking, realtimekit, rooms
+from . import billing, conversations, moderation, presence, profile, eligibility, identity, matchmaking, realtimekit, rooms
 from .config import settings
 from .maintenance import maintain
 from .runtime import cache, database_sqlstate, engine, require_maintenance
@@ -112,3 +112,4 @@ app.include_router(rooms.router)
 app.include_router(billing.router)
 app.include_router(presence.router)
 app.include_router(profile.router)
+app.include_router(moderation.router)

@@ -11,6 +11,7 @@ export const session = z.object({
   premium_until: z.string().nullable().default(null),
   gender: z.enum(["male", "female", "other"]).nullable().default(null),
   country: z.string().nullable().default(null),
+  moderator: z.boolean().default(false),
 });
 export type Session = z.infer<typeof session>;
 export const subscription = z.object({

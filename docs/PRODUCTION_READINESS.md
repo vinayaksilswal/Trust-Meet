@@ -15,7 +15,7 @@ The hosted configuration supports password signup and a self-reported date-of-bi
 
 ## Partial
 
-- TrustOS stores categorized conversation and room reports and blocks. The operator CLI records account suspensions and lists reports. Staffed case handling, appeal tooling and escalation remain open.
+- A moderation console at `/moderation` ranks reports by severity, suspends and reinstates accounts, and keeps an audit log. Staff roles are granted from the operator CLI. 24/7 staffing and automatic content detection remain open. See [Trust and safety](TRUST_AND_SAFETY.md).
 - Conversation timestamps support duration tracking. Billing-grade usage metering, live occupancy and cost controls are pending.
 - Hosted eligibility uses the result of a self-reported date-of-birth check. Live media-provider checks remain open. Self-hosted development tokens can replay within their validity window.
 - Discovery includes gated entries for business, wellness, fitness and astrology. Expert onboarding, appointments, Razorpay test settlement and public access to these modules are pending.

@@ -4,7 +4,7 @@ import type { NextRequest } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 20;
 
-const routes = new Set(["auth", "billing", "conversations", "eligibility", "matchmaking", "me", "health", "presence", "profile", "ready", "rooms"]);
+const routes = new Set(["auth", "billing", "conversations", "eligibility", "matchmaking", "me", "health", "moderation", "presence", "profile", "ready", "rooms"]);
 const maxBodyBytes = 16_384;
 // Razorpay webhook payloads are larger than browser requests and carry their own signature.
 const webhookBodyBytes = 262_144;

@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import insert
 from .config import settings
 from .entitlements import is_plus, premium_until
 from .identity import CurrentUser, Db
-from .models import Eligibility, Subscription, User
+from .models import Eligibility, StaffRole, Subscription, User
 from .runtime import client_country, now, throttle
 
 
@@ -79,6 +79,7 @@ async def me(request: Request, user: CurrentUser, db: Db):
         "premium_until": await premium_until(db, user.id),
         "gender": user.gender,
         "country": client_country(request) or None,
+        "moderator": await db.get(StaffRole, user.id) is not None,
     }
 
 
