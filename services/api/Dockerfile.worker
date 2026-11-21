@@ -3,6 +3,9 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && useradd --system --uid 10001 trustmeet
+COPY alembic.ini alembic.ini
+COPY migrations migrations
 COPY conviya conviya
 USER trustmeet
-CMD ["python", "-m", "conviya.maintenance"]
+# Applies migrations to head, then runs the maintenance loop.
+CMD ["python", "-m", "conviya.worker_entry"]
